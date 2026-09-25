@@ -186,9 +186,13 @@ export default function Auth({ mode }: { mode: 'login' | 'signup' }) {
 
       <main className="flex flex-col bg-white">
         <div className="flex items-center justify-between px-6 py-5 sm:px-10">
-          <Link to="/" className="inline-flex items-center gap-2 text-[14px] font-bold text-muted hover:text-ink">
-            <ArrowLeft size={16} aria-hidden /> Înapoi
-          </Link>
+          {isSignup ? (
+            <Link to="/" state={location.state} className="inline-flex items-center gap-2 text-[14px] font-bold text-muted hover:text-ink">
+              <ArrowLeft size={16} aria-hidden /> Înapoi la autentificare
+            </Link>
+          ) : (
+            <span />
+          )}
           <span className="lg:hidden">
             <LogoMark size={32} />
           </span>
@@ -294,7 +298,7 @@ export default function Auth({ mode }: { mode: 'login' | 'signup' }) {
 
             <p className="mt-6 text-center text-[14px] text-muted">
               {isSignup ? 'Ai deja cont? ' : 'Nu ai cont? '}
-              <Link to={isSignup ? '/login' : '/signup'} state={location.state} className="font-bold text-ink underline underline-offset-4 hover:text-orange-ink">
+              <Link to={isSignup ? '/' : '/signup'} state={location.state} className="font-bold text-ink underline underline-offset-4 hover:text-orange-ink">
                 {isSignup ? 'Autentifică-te' : 'Creează unul'}
               </Link>
             </p>

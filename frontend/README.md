@@ -14,8 +14,8 @@ Requires Node 22.22+.
 
 | Route | Page | Jira |
 |---|---|---|
-| `/` (logged out) | Public landing page — hero with a Higgsfield-generated looping background, how it works, product, sources | — |
-| `/login`, `/signup` | Login and sign-up with validation, password strength, animated side panel. The first account becomes admin; after that the backend only lets admins create accounts | — |
+| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background. Any app URL opened while logged out comes back here and returns to that URL after login | — |
+| `/signup` | Sign-up with validation and password strength. The first account becomes admin; after that the backend only lets admins create accounts | — |
 | `/account` | Personal account — profile, password, my leads, activity log, team management (admins) | — |
 | `/` (logged in) | Home — KPIs, fresh signals, top leads to contact | — |
 | `/leads` | Lead list — filters (service, country, stage, new), sort, CSV export | GIG-34 |
@@ -37,7 +37,7 @@ discovery run (`POST /discovery/runs`) and reloads the data when it ends.
 `src/auth/session.tsx` holds the session for every page. With the API up and `auth_required`, it uses the seller
 accounts (`/auth/login`, `/auth/me`, `POST /sellers`, `PUT /sellers/{id}`). With the API down, `VITE_USE_MOCK=true`
 or auth switched off, login and sign-up keep a local demo session in the browser (no password is stored) so the
-full flow can still be shown. Background loops and the landing screenshot live in `public/media/`.
+full flow can still be shown. The login background loop lives in `public/media/`.
 
 ## Design tokens
 

@@ -9,7 +9,6 @@ import Auth from './pages/Auth'
 import Company from './pages/Company'
 import Config from './pages/Config'
 import Home from './pages/Home'
-import Landing from './pages/Landing'
 import Leads from './pages/Leads'
 import Pipeline from './pages/Pipeline'
 import Runs from './pages/Runs'
@@ -18,18 +17,18 @@ function Splash({ text }: { text: string }) {
   return <div className="flex h-full items-center justify-center bg-ink text-white/60">{text}</div>
 }
 
-/** Visitors see the public landing page on "/" and are sent to the login for any app page. */
+/** Logged-out visitors get the login on "/"; any other app page sends them there and back after login. */
 function AppGate() {
   const { loading, seller, dataReady } = useSession()
   const location = useLocation()
   if (loading) return <Splash text="Se încarcă…" />
-  if (!seller) return location.pathname === '/' ? <Landing /> : <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  if (!seller) return location.pathname === '/' ? <Auth mode="login" /> : <Navigate to="/" replace state={{ from: location.pathname + location.search }} />
   if (!dataReady) return <Splash text="Se încarcă lead-urile…" />
   return <Layout />
 }
 
 const router = createBrowserRouter([
-  { path: '/login', element: <Auth mode="login" /> },
+  { path: '/login', element: <Navigate to="/" replace /> },
   { path: '/signup', element: <Auth mode="signup" /> },
   {
     path: '/',
