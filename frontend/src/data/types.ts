@@ -45,6 +45,12 @@ export interface Company {
   employees: string
   stage: Stage
   owner: string | null
+  /** PostgreSQL sellers.id of the owner (lead_assignments) */
+  sellerId: number | null
+  /** MongoDB lead_scores ids per service, for HubSpot */
+  leadIds: number[]
+  /** Backend service id of the best-scoring service (outreach) */
+  bestServiceApiId: number | null
   score: number
   prevScore: number
   serviceScores: Record<ServiceId, number>

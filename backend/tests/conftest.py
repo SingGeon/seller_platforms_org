@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite://")
 os.environ.setdefault("MONGO_URI", "mongodb://localhost:27017")
 os.environ["OFFLINE_COLLECT"] = "true"
+os.environ["AUTH_REQUIRED"] = "false"  # sellers_test.py turns it on explicitly
 os.environ["LLM_PROVIDER"] = "heuristic"
 os.environ.pop("ANTHROPIC_API_KEY", None)
 

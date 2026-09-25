@@ -1,7 +1,8 @@
 import { Table2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { STAGES, getCompanies, topSignal } from '../data/api'
+import { STAGES, getCompanies, isLive, patchCompany, topSignal } from '../data/api'
+import { saveAssignment } from '../data/backend'
 import type { Stage } from '../data/types'
 import { Avatar, PageHeader, ScoreMeter, ServiceTag, btn } from '../components/ui'
 import { bestService } from './Leads'
@@ -14,25 +15,40 @@ export default function Pipeline() {
   )
   const [dragId, setDragId] = useState<string | null>(null)
   const [over, setOver] = useState<Stage | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const companies = getCompanies().filter((c) => stages[c.id] !== 'descalificat')
 
   const drop = (stage: Stage) => {
-    if (dragId) setStages((s) => ({ ...s, [dragId]: stage }))
+    const id = dragId
     setDragId(null)
     setOver(null)
+    if (!id || stages[id] === stage) return
+    const previous = stages[id]
+    setStages((s) => ({ ...s, [id]: stage }))
+    if (!isLive()) return // demo data: nothing to save
+    saveAssignment(id, { stage })
+      .then(() => {
+        patchCompany(id, { stage })
+        setError(null)
+      })
+      .catch((err: unknown) => {
+        setStages((s) => ({ ...s, [id]: previous }))
+        setError(`Nu am putut salva stadiul: ${err instanceof Error ? err.message : String(err)}`)
+      })
   }
 
   return (
     <div className="rise">
       <PageHeader
         title="Pipeline"
-        subtitle="Trage cardurile între coloane pentru a schimba stadiul."
+        subtitle="Trage cardurile între coloane pentru a schimba stadiul. Se salvează pentru toată echipa."
         actions={
           <Link to="/leads" className={btn('ghost')}>
             <Table2 size={16} aria-hidden /> Vizualizare tabel
           </Link>
         }
       />
+      {error && <p className="mb-3 bg-danger-bg px-3 py-2 font-bold text-danger" role="alert">{error}</p>}
       <div className="grid min-w-[1000px] grid-cols-5 gap-3 overflow-x-auto pb-4">
         {COLUMNS.map((col) => {
           const items = companies.filter((c) => stages[c.id] === col.id).sort((a, b) => b.score - a.score)

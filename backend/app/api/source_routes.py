@@ -119,7 +119,9 @@ def _start(request: Request, sources: list[str] | None, enrich_top_n: int | None
         spec = BY_NAME.get(n) or _404(n)
         if spec.sync is None:
             raise HTTPException(422, f"'{n}' is an enrichment source; it runs inside enrichment runs (POST /runs)")
-    run = mongo.create_run(kind="discovery", params={"sources": sources, "enrich_top_n": enrich_top_n, "trigger": "api"})
+    seller = getattr(request.state, "seller", None)
+    run = mongo.create_run(kind="discovery", params={"sources": sources, "enrich_top_n": enrich_top_n, "trigger": "api"},
+                           seller_id=seller.id if seller else None)
     task = asyncio.create_task(
         run_discovery(request.app.state.session_factory, run.id, sources=sources, enrich_top_n=enrich_top_n,
                       llm=request.app.state.llm_override, client=request.app.state.http_override)
@@ -147,7 +149,9 @@ async def start_bootstrap(body: BootstrapIn, request: Request):
     active = mongo.active_run()
     if active is not None:
         raise HTTPException(409, f"Run {active.id} is still {active.status}")
-    run = mongo.create_run(status="running", kind="bootstrap", params=body.model_dump(), started_at=datetime.now(timezone.utc))
+    seller = getattr(request.state, "seller", None)
+    run = mongo.create_run(status="running", kind="bootstrap", params=body.model_dump(), started_at=datetime.now(timezone.utc),
+                           seller_id=seller.id if seller else None)
     sf = request.app.state.session_factory
     run_id = run.id
 

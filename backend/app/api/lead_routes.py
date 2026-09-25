@@ -116,7 +116,9 @@ def list_leads(
 
 @router.get("/dashboard/companies", tags=["leads"], summary="Every scored company with per-service scores and evidence, in one call (for the dashboard)")
 def dashboard_companies(include_outside_icp: bool = False, max_signals: int = Query(8, ge=0, le=50), db: Session = Depends(get_db)):
+    """Joins both stores: scores and evidence from MongoDB, pipeline stage / owner from PostgreSQL."""
     rows = _joined(db)
+    assignments = {a.company_id: a for a in db.scalars(select(LeadAssignment))}
     by_company: dict[int, dict] = {}
     for lead, company, service in rows:
         entry = by_company.get(company.id)
@@ -126,12 +128,13 @@ def dashboard_companies(include_outside_icp: bool = False, max_signals: int = Qu
                 "registry_ref": {k: (v or {}).get("wikidata_id") or (v or {}).get("lei") or (v or {}).get("ref") for k, v in (company.registry_profiles or {}).items()},
                 "scores": [],
                 "outside_icp": True,
+                "assignment": _assignment(assignments.get(company.id)),
             }
         outside = bool((lead.breakdown or {}).get("outside_icp"))
         entry["outside_icp"] = entry["outside_icp"] and outside
         items = [i for i in ((lead.breakdown or {}).get("signals") or {}).get("items", []) if i.get("points") and i.get("evidence")]
         entry["scores"].append({
-            "service_id": service.id, "service_slug": service.slug, "service": service.name,
+            "lead_id": lead.id, "service_id": service.id, "service_slug": service.slug, "service": service.name,
             "final_score": lead.final_score, "previous_score": lead.previous_score, "score_changed_at": lead.score_changed_at,
             "icp_score": lead.icp_score, "signal_score": lead.signal_score, "tier": lead.tier, "disqualified": lead.disqualified,
             "disqualification_reasons": lead.disqualification_reasons or [], "outside_icp": outside,
@@ -141,6 +144,13 @@ def dashboard_companies(include_outside_icp: bool = False, max_signals: int = Qu
     out = [e for e in by_company.values() if include_outside_icp or not e["outside_icp"] or any(s["disqualified"] for s in e["scores"])]
     out.sort(key=lambda e: -max((s["final_score"] for s in e["scores"] if not s["disqualified"]), default=-1))
     return out
+
+
+def _assignment(a: LeadAssignment | None) -> dict:
+    if a is None:
+        return {"stage": None, "seller_id": None, "owner": None, "notes": 0, "updated_at": None}
+    return {"stage": a.stage, "seller_id": a.seller_id, "owner": a.seller.full_name if a.seller else None,
+            "notes": len(a.notes or []), "updated_at": a.updated_at}
 
 
 # ------------------------------------------------------------------ companies
@@ -288,18 +298,20 @@ def update_linkedin_validation(company_id: int, body: LinkedinValidationIn):
 
 
 @router.post("/companies/{company_id}/manual-signal", response_model=SignalOut, status_code=201, tags=["companies"])
-def add_manual_signal(company_id: int, body: ManualSignalIn, db: Session = Depends(get_db)):
+def add_manual_signal(company_id: int, body: ManualSignalIn, request: Request, db: Session = Depends(get_db)):
     company_or_404(company_id)
     q = get_or_404(db, SignalQuestion, body.question_id)
     evidence = []
     if body.evidence_url or body.evidence_quote:
         evidence = [{"quote": body.evidence_quote, "url": body.evidence_url or "", "date": body.evidence_date or "unknown"}]
     now = datetime.now(timezone.utc)
+    seller = getattr(request.state, "seller", None)
     sig = mongo.insert(mongo.SIGNALS, {
         "company_id": company_id, "service_id": q.service_id, "question_id": q.id, "rule_id": None, "origin": "manual",
         "answer": body.answer, "confidence": body.confidence, "evidence": evidence,
         "reasoning": body.note or "Validated manually by sales rep.",
-        "signal_date": signal_date_from_evidence(evidence) or now, "detected_at": now, "run_id": None, "created_by": body.created_by,
+        "signal_date": signal_date_from_evidence(evidence) or now, "detected_at": now, "run_id": None,
+        "created_by": seller.full_name if seller else body.created_by, "seller_id": seller.id if seller else None,
     })
     recompute_scores(db, company_ids=[company_id], service_ids=[q.service_id])
     return sig
@@ -379,7 +391,8 @@ async def start_run(body: RunIn, request: Request):
     active = mongo.active_run()
     if active is not None:
         raise HTTPException(409, f"Run {active.id} is still {active.status}")
-    run = mongo.create_run(params=body.model_dump())
+    seller = getattr(request.state, "seller", None)
+    run = mongo.create_run(params=body.model_dump(), seller_id=seller.id if seller else None)
     task = asyncio.create_task(
         execute_run(
             request.app.state.session_factory, run.id, company_ids=body.company_ids, service_ids=body.service_ids,

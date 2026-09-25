@@ -1,4 +1,5 @@
 import { loadBackendData, runDiscovery, type BackendData } from './backend'
+import { AuthError, type Seller } from './client'
 import { COMPANIES, QUESTIONS, SERVICES, SOURCES } from './mock'
 import type { Company, Signal, Stage } from './types'
 
@@ -7,6 +8,13 @@ import type { Company, Signal, Stage } from './types'
 let store: BackendData = { companies: COMPANIES, services: SERVICES, questions: QUESTIONS, sources: SOURCES }
 let live = false
 let loadError: string | null = null
+let seller: Seller | null = null
+
+/** The logged-in seller (PostgreSQL account), or null in demo mode. */
+export const getSeller = () => seller
+export const setSeller = (s: Seller | null) => {
+  seller = s
+}
 
 export async function loadData(): Promise<void> {
   if (import.meta.env.VITE_USE_MOCK === 'true') return
@@ -15,6 +23,7 @@ export async function loadData(): Promise<void> {
     live = true
     loadError = null
   } catch (err) {
+    if (err instanceof AuthError) throw err
     live = false
     loadError = err instanceof Error ? err.message : String(err)
     console.warn('Backend unreachable, showing demo data:', loadError)
@@ -38,8 +47,13 @@ export const getServices = () => store.services
 export const getQuestions = () => store.questions
 export const getSources = () => store.sources
 
+/** Apply a saved change (stage, owner) to the in-memory copy so every page shows it without a reload. */
+export function patchCompany(id: string, patch: Partial<Company>) {
+  store = { ...store, companies: store.companies.map((c) => (c.id === id ? { ...c, ...patch } : c)) }
+}
+
 export const getRecentSignals = (limit = 8) =>
-  COMPANIES.filter((c) => c.stage !== 'descalificat').flatMap((c) => c.signals.filter((s) => s.points > 0).map((s) => ({ ...s, company: c })))
+  store.companies.filter((c) => c.stage !== 'descalificat').flatMap((c) => c.signals.filter((s) => s.points > 0).map((s) => ({ ...s, company: c })))
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, limit) as (Signal & { company: Company })[]
 

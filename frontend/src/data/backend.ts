@@ -1,8 +1,7 @@
 // Loads data from the FastAPI backend and maps it onto the UI types in ./types.
 // Backend contract: /docs on the API (GIG-32). Used by ./api.ts at startup.
+import { del, getJson, postJson, putJson } from './client'
 import type { Company, Service, ServiceId, Signal, SignalQuestion, SourceStatus, SourceType, Stage, Weight } from './types'
-
-export const API_URL: string = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000'
 
 // Backend service slugs -> UI service ids (the UI colours and labels are keyed on these).
 const SLUG_TO_SERVICE: Record<string, ServiceId> = { apa: 'automation', automation: 'automation', cyber: 'cyber', digital: 'digital' }
@@ -19,35 +18,19 @@ interface ApiRule { id: number; service_id: number | null; name: string; rule_ty
 interface ApiEvidence { quote?: string; url?: string; date?: string }
 interface ApiItem { kind: string; question_id?: number; event_type?: string; label: string; confidence: number; points: number; evidence: ApiEvidence[] }
 interface ApiScore {
-  service_id: number; final_score: number; previous_score: number | null; score_changed_at: string | null; disqualified: boolean
+  lead_id: number; service_id: number; final_score: number; previous_score: number | null; score_changed_at: string | null; disqualified: boolean
   summary: string; computed_at: string; signals: ApiItem[]
 }
 // GET /dashboard/companies: every scored company with its per-service scores and evidence, in one call.
 interface ApiDashboardCompany {
   company: { id: number; name: string; domain: string | null; industry: string | null; country: string | null; employee_count: number | null; created_at: string; origin: string }
   scores: ApiScore[]
+  // PostgreSQL lead_assignments, joined in by the backend
+  assignment: { stage: Stage | null; seller_id: number | null; owner: string | null; notes: number; updated_at: string | null }
 }
 interface ApiSource {
   name: string; label: string; category: string; refresh: string; last_run_at: string | null; last_status: string
   last_error: string | null; missing_keys: string[]; last_stats: { new_documents?: number }
-}
-
-async function getJson<T>(path: string, timeoutMs = 8000): Promise<T> {
-  const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
-  try {
-    const resp = await fetch(`${API_URL}${path}`, { signal: ctrl.signal })
-    if (!resp.ok) throw new Error(`${path}: HTTP ${resp.status}`)
-    return (await resp.json()) as T
-  } finally {
-    clearTimeout(timer)
-  }
-}
-
-export async function postJson<T>(path: string, body: unknown = {}): Promise<T> {
-  const resp = await fetch(`${API_URL}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  if (!resp.ok) throw new Error(`${path}: HTTP ${resp.status} ${await resp.text()}`)
-  return (await resp.json()) as T
 }
 
 // ------------------------------------------------------------------ mapping helpers
@@ -169,14 +152,15 @@ export async function loadBackendData(): Promise<BackendData> {
       const sid = serviceById.get(l.service_id)
       if (sid) serviceScores[sid] = Math.round(l.final_score)
     }
-    const stage: Stage = eligible.length === 0 ? 'descalificat' : 'nou'
-    const updated = own.map((l) => l.score_changed_at ?? l.computed_at).sort().at(-1) ?? d.company.created_at
+    const stage: Stage = d.assignment?.stage ?? (eligible.length === 0 ? 'descalificat' : 'nou')
+    const updated = [...own.map((l) => l.score_changed_at ?? l.computed_at), d.assignment?.updated_at ?? ''].sort().at(-1) || d.company.created_at
     const c = d.company
     return {
       id: String(c.id), name: c.name, domain: c.domain ?? '', industry: c.industry ?? '—', country: c.country ?? '',
       countryName: c.country ? (countryNames?.of(c.country) ?? c.country) : '—',
       employees: c.employee_count != null ? c.employee_count.toLocaleString('ro-RO') : '—',
-      stage, owner: null, score: Math.round(best?.final_score ?? 0), prevScore: Math.round(best?.previous_score ?? best?.final_score ?? 0),
+      stage, owner: d.assignment?.owner ?? null, sellerId: d.assignment?.seller_id ?? null,
+      leadIds: own.map((l) => l.lead_id), bestServiceApiId: best?.service_id ?? null, score: Math.round(best?.final_score ?? 0), prevScore: Math.round(best?.previous_score ?? best?.final_score ?? 0),
       serviceScores, whyNow: best?.summary ?? '', firstSeen: c.created_at, updatedAt: updated, signals: signalsFrom(d, serviceById),
     }
   })
@@ -197,4 +181,79 @@ export async function runDiscovery(pollMs = 2000, maxWaitMs = 10 * 60_000): Prom
     current = await getJson<ApiRun>(`/runs/${run.id}`)
   }
   return current
+}
+
+// ------------------------------------------------------------------ CRM state (PostgreSQL) and actions
+export interface Note { t: string; seller_id: number; author: string; text: string }
+export interface Assignment { company_id: number; seller_id: number | null; owner: string | null; stage: Stage; notes: Note[]; updated_at: string | null }
+
+export const getAssignment = (companyId: string) => getJson<Assignment>(`/companies/${companyId}/assignment`)
+export const saveAssignment = (companyId: string, body: { stage?: Stage; seller_id?: number; unassign?: boolean }) =>
+  putJson<Assignment>(`/companies/${companyId}/assignment`, body)
+export const addNote = (companyId: string, text: string) => postJson<Assignment>(`/companies/${companyId}/notes`, { text })
+
+export interface Activity { t: string; action: string; seller: string | null; details: Record<string, unknown> }
+export const getActivity = (companyId: string) => getJson<Activity[]>(`/activity?company_id=${companyId}&limit=50`)
+
+export interface Outreach { subject: string; body: string; grounded: boolean; sources: { url: string; date: string }[] }
+export const generateOutreach = (companyId: string, serviceApiId: number, channel: 'email' | 'linkedin' | 'followup', language: 'RO' | 'EN' | 'DE') =>
+  postJson<Outreach>(`/companies/${companyId}/outreach?service=${serviceApiId}&channel=${channel}&language=${language}&tone=consultative`, undefined, 120_000)
+
+export const sendToHubspot = (leadIds: number[]) => postJson<{ lead_id: number; ok: boolean; error?: string }[]>('/crm/hubspot', leadIds)
+
+// ------------------------------------------------------------------ configuration (PostgreSQL)
+export interface ApiQuestionFull {
+  id: number; service_id: number; text: string; weight: 'High' | 'Medium' | 'Low'; source_hint: string; lookback_days: number
+  is_negative: boolean; keywords: string[]; active: boolean
+}
+export interface ApiRuleFull {
+  id: number; service_id: number | null; name: string; rule_type: 'field_rule' | 'llm_question'; field: string | null; operator: string | null
+  value: unknown; question: string | null; keywords: string[]; min_confidence: number; active: boolean
+}
+export interface ApiIcp {
+  id: number; service_id: number; markets: string[]; industries: string[]; countries: string[]; employee_min: number | null
+  employee_max: number | null; revenue_min: number | null; revenue_max: number | null; min_fit: number
+}
+export interface ApiScoringConfig {
+  icp_weight: number; signal_weight: number; hot_threshold: number; warm_threshold: number; weight_values: Record<'High' | 'Medium' | 'Low', number>
+  recency_buckets: [number | null, number][]; undated_recency: number; discovery_countries: string[]
+}
+export interface ConfigData {
+  services: (ApiService & { uiId: ServiceId })[]
+  questions: ApiQuestionFull[]
+  rules: ApiRuleFull[]
+  icps: ApiIcp[]
+  scoring: ApiScoringConfig
+}
+
+export async function loadConfig(): Promise<ConfigData> {
+  const [services, rules, icps, scoring] = await Promise.all([
+    getJson<ApiService[]>('/services'), getJson<ApiRuleFull[]>('/rules'), getJson<ApiIcp[]>('/icp'), getJson<ApiScoringConfig>('/scoring-config'),
+  ])
+  const active = services.filter((s) => s.active)
+  const questions = (await Promise.all(active.map((s) => getJson<ApiQuestionFull[]>(`/services/${s.id}/questions`)))).flat()
+  return { services: active.map((s) => ({ ...s, uiId: serviceIdFor(s.slug) })), questions, rules, icps, scoring }
+}
+
+const questionBody = (q: ApiQuestionFull) => ({
+  text: q.text, weight: q.weight, source_hint: q.source_hint, lookback_days: q.lookback_days, is_negative: q.is_negative, keywords: q.keywords, active: q.active,
+})
+const ruleBody = (r: ApiRuleFull) => ({
+  name: r.name, rule_type: r.rule_type, field: r.field, operator: r.operator, value: r.value, question: r.question, keywords: r.keywords,
+  min_confidence: r.min_confidence, active: r.active,
+})
+
+export const configApi = {
+  createQuestion: (serviceId: number, text: string, weight: 'High' | 'Medium' | 'Low', isNegative: boolean) =>
+    postJson(`/services/${serviceId}/questions`, { text, weight, is_negative: isNegative }),
+  updateQuestion: (q: ApiQuestionFull) => putJson(`/services/${q.service_id}/questions/${q.id}`, questionBody(q)),
+  deleteQuestion: (q: ApiQuestionFull) => del(`/services/${q.service_id}/questions/${q.id}`),
+  createRule: (question: string) => postJson('/rules', { name: question.slice(0, 190), rule_type: 'llm_question', question }),
+  updateRule: (r: ApiRuleFull) => putJson(`/rules/${r.id}`, ruleBody(r)),
+  deleteRule: (r: ApiRuleFull) => del(`/rules/${r.id}`),
+  saveIcp: (icp: ApiIcp) => {
+    const { id: _id, service_id, ...body } = icp
+    return putJson(`/icp/${service_id}`, body)
+  },
+  saveScoring: (cfg: ApiScoringConfig) => putJson('/scoring-config', cfg),
 }

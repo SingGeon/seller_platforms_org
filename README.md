@@ -18,7 +18,7 @@ explains each company × service lead.
 |---|---|
 | `backend/` | FastAPI REST API, PostgreSQL models + Alembic migrations (sellers, config), MongoDB store (companies, AI data, logs), scoring engine, run orchestration, outreach, CRM export |
 | `pipeline/` | `sales_pipeline` package: collectors (news / web / jobs), LangGraph signal-extraction graph, LLM backends, prompts, calibration set |
-| `frontend/` | React + TypeScript + Vite + Tailwind CRM dashboard (GIG-33 to GIG-37) — runs on demo data for now, see `frontend/README.md` |
+| `frontend/` | React + TypeScript + Vite + Tailwind CRM dashboard (GIG-33 to GIG-37) with seller login, wired to the API (demo data only when the API is down), see `frontend/README.md` |
 | `infra/` | Deployment notes / manifests |
 
 ## Quick start
@@ -190,8 +190,47 @@ Two databases, each holding what it is best at:
 | Schema | Alembic migrations (`backend/alembic/versions`) | Indexes created on startup (`backend/app/mongo.py`) |
 
 Companies, leads and runs keep **integer ids** (from the `counters` collection), so URLs such as `/companies/12` and
-the frontend are unchanged. There are no foreign keys across the two databases: deleting a service, question, rule or
-company removes the matching Mongo documents and the lead assignment in code.
+the frontend are unchanged.
+
+**How the two databases work together**
+
+```mermaid
+flowchart LR
+  subgraph PG[PostgreSQL LDR, schema LeadRadar]
+    SEL[sellers] --- SES[seller_sessions]
+    SEL --- LA[lead_assignments<br/>stage, owner, notes]
+    SVC[services] --- Q[signal_questions]
+    SVC --- R[disqualification_rules]
+    SVC --- ICP[icp_criteria]
+    CFG[scoring_config]
+  end
+  subgraph MG[MongoDB leadradar]
+    C[companies] --- D[documents]
+    C --- SG[signals]
+    C --- EV[company_events]
+    C --- LS[lead_scores]
+    RUN[pipeline_runs + log]
+    ACT[activity_log]
+    LLM[llm_cache]
+  end
+  LA -. company_id .-> C
+  LS -. service_id .-> SVC
+  SG -. question_id / rule_id .-> Q
+  SG -. seller_id .-> SEL
+  ACT -. seller_id .-> SEL
+  RUN -. seller_id .-> SEL
+```
+
+- **Joins happen in the API**: `/dashboard/companies` returns scores and evidence from MongoDB together with the stage,
+  owner and note count from PostgreSQL; company pages add the MongoDB activity log to the PostgreSQL notes.
+- **Structure is enforced on both sides**: PostgreSQL through the Alembic schema and foreign keys, MongoDB through a
+  `$jsonSchema` validator on every collection (required fields, types, allowed values such as tiers and answers) plus
+  unique indexes (domain, company x content hash, company x service).
+- **No foreign keys across databases**, so deletes cascade in code (a service, question, rule or company removes its
+  Mongo documents and its lead assignment), and `GET /admin/integrity` checks every cross reference; `POST
+  /admin/integrity/repair` removes orphans left behind by a crash or a manual edit in DBeaver / Compass.
+- **Audit trail**: every successful change through the API (and each login / logout) is written to `activity_log`
+  with the seller id and name from PostgreSQL.
 
 The PostgreSQL structure is also a runnable SQL script, [`docs/database/postgres_schema.sql`](docs/database/postgres_schema.sql), which creates the `LeadRadar` schema in LDR (DBeaver: Execute script).
 In VS Code, `.vscode/settings.json` adds both databases to the SQLTools and MongoDB sidebars ("LeadRadar PostgreSQL (LDR)",
@@ -310,7 +349,11 @@ erDiagram
 | CRM | `GET /export/leads.csv`, `GET /export/leads.json`, `POST /crm/hubspot` (body: lead ids) |
 | Auth | `POST /auth/login` (`{email, password}` → bearer token, 14 days), `POST /auth/logout`, `GET /auth/me` |
 | Sellers | `POST /sellers` (the first account is free and becomes admin, afterwards admin only), `GET /sellers`, `PUT /sellers/{id}`, `DELETE /sellers/{id}` |
-| Lead stage / owner | `GET /assignments?seller_id=`, `GET/PUT /companies/{id}/assignment` (`{stage?, seller_id?, unassign?}`), `POST /companies/{id}/notes` — need `Authorization: Bearer <token>` |
+| Lead stage / owner | `GET /assignments?seller_id=`, `GET/PUT /companies/{id}/assignment` (`{stage?, seller_id?, unassign?}`), `POST /companies/{id}/notes` |
+| Activity / integrity | `GET /activity?company_id=&seller_id=` (MongoDB log), `GET /admin/integrity`, `POST /admin/integrity/repair` (admin) |
+
+Every endpoint except `/health`, `/auth/status`, `/auth/login` and the very first `POST /sellers` needs
+`Authorization: Bearer <token>` (`AUTH_REQUIRED=false` turns this off for local experiments).
 
 LinkedIn is used **only** for manual validation fields entered by reps. Nothing is scraped from LinkedIn.
 
@@ -350,12 +393,13 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 
 | UI | Backend endpoint | Status |
 |---|---|---|
-| Leads, Home, Pipeline | `GET /leads` | Live (pipeline stage and owner are still kept in the browser; the backend now stores them per seller in `lead_assignments` via `/companies/{id}/assignment`, the login screen is not wired yet) |
-| Company record | `GET /companies/{id}` | Live: scores per service, why-now, signals with quote, source, date, confidence and points |
-| Configuration | `/services`, `/services/{id}/questions`, `/rules`, `/icp`, `/scoring-config`, `POST /scores/recompute` | Questions and rules are read from the API; edits are not saved yet |
+| Login | `/auth/status`, `/auth/login`, `/sellers` | Live: seller login; on an empty database the screen creates the first (admin) account |
+| Leads, Home, Pipeline | `GET /dashboard/companies`, `PUT /companies/{id}/assignment` | Live: dragging a card saves the stage in PostgreSQL for the whole team |
+| Company record | `/dashboard/companies`, `/companies/{id}/assignment`, `/companies/{id}/notes`, `/activity` | Live: scores, why-now, evidence; stage, owner and notes are saved; the timeline shows who did what |
+| Configuration | `/services/{id}/questions`, `/rules`, `/icp`, `/scoring-config` | Live: loads the stored values; "Salvează și recalculează" saves questions, rules, ICP and scoring, and the scores are recomputed |
 | Sources and runs | `GET /sources`, `POST /discovery/runs`, `GET /runs/{id}` | Live: per-source status, last run, errors and missing keys; "Rulează acum" starts a real discovery run |
-| Generate message | `POST /companies/{id}/outreach` | Placeholder |
-| Send to HubSpot / Export CSV | `POST /crm/hubspot`, `GET /export/leads.csv` | HubSpot not wired; CSV exported in the browser |
+| Generate message | `POST /companies/{id}/outreach` | Live: email / LinkedIn / follow-up in RO, EN or DE, with a check that it cites a real signal |
+| Send to HubSpot / Export CSV | `POST /crm/hubspot`, `GET /export/leads.csv` | Live (needs `HUBSPOT_TOKEN`); CSV exported in the browser |
 | LinkedIn check | `PUT /companies/{id}/linkedin` | Opens a LinkedIn search for manual review; fields not yet saved |
 
 ## Jira mapping (frontend / UX / research)
@@ -369,10 +413,10 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 | GIG-24 LinkedIn manual validation | Partly done: "LinkedIn" button on the company record for a manual check; the form behind `PUT /companies/{id}/linkedin` is still to do |
 | GIG-31 Validate scoring on Annex 1 | To do (calibration set in `pipeline/calibration/`) |
 | GIG-33 Frontend setup | Done: React + TypeScript + Vite + Tailwind, Orange design tokens, CRM layout, routing |
-| GIG-34 Leads page | Done on demo data |
-| GIG-35 Company record | Done on demo data (message tab is a placeholder until wired to GIG-38) |
-| GIG-36 Configuration page | UI done; changes are not saved to the API yet |
-| GIG-37 Runs page | UI done on demo data |
+| GIG-34 Leads page | Done, live data |
+| GIG-35 Company record | Done, live data: stage, owner, notes, timeline, outreach message, HubSpot |
+| GIG-36 Configuration page | Done: questions, rules, ICP and scoring load from and save to the API |
+| GIG-37 Runs page | Done, live source status and "Run now" |
 | GIG-39 Value-proposition library | To do |
 | GIG-41 Final demo dataset | To do |
 | GIG-42 Testing, bug bash, code freeze at H33 | To do |
@@ -380,8 +424,8 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 | GIG-44 5-minute demo script and backup video | To do |
 | GIG-45 README, architecture docs, deploy | In progress: web application section above and `frontend/README.md` |
 
-**Next frontend step:** save Configuration edits through the API, wire "Generează mesaj" to
-`POST /companies/{id}/outreach` and "Trimite în HubSpot" to `POST /crm/hubspot`.
+**Next frontend step:** a screen for admins to manage seller accounts (the API is ready: `/sellers`), and the manual
+LinkedIn validation form behind `PUT /companies/{id}/linkedin`.
 
 ## Jira mapping (backend / data / AI: Gheorghe Singereanu)
 

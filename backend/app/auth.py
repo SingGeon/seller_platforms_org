@@ -58,16 +58,22 @@ def bearer_token(request: Request) -> str | None:
 
 
 def optional_seller(request: Request, db: Session = Depends(get_db)) -> Seller | None:
+    """The logged-in seller (or None); also kept on request.state for the activity log."""
     token = bearer_token(request)
-    if not token:
-        return None
-    row = db.get(SellerSession, _token_hash(token))
-    if row is None:
-        return None
-    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
-    if expires < datetime.now(timezone.utc) or not row.seller.active:
-        return None
-    return row.seller
+    row = db.get(SellerSession, _token_hash(token)) if token else None
+    seller = None
+    if row is not None:
+        expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
+        if expires >= datetime.now(timezone.utc) and row.seller.active:
+            seller = row.seller
+    request.state.seller = seller
+    return seller
+
+
+def auth_guard(request: Request, seller: Seller | None = Depends(optional_seller)) -> None:
+    """Router-level guard: every data/config endpoint needs a login unless auth is switched off."""
+    if request.app.state.auth_required and seller is None:
+        raise HTTPException(401, "Login required", headers={"WWW-Authenticate": "Bearer"})
 
 
 def current_seller(seller: Seller | None = Depends(optional_seller)) -> Seller:

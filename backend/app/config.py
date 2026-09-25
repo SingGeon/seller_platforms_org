@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     offline_collect: bool = False
 
     cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    # Every data and configuration endpoint needs a seller login (POST /auth/login).
+    auth_required: bool = True
 
 
 @lru_cache

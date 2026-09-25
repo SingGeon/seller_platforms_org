@@ -1,7 +1,8 @@
-import { Bell, Kanban, LayoutDashboard, RadioTower, Search, SlidersHorizontal, Users } from 'lucide-react'
+import { Bell, Kanban, LayoutDashboard, LogOut, RadioTower, Search, SlidersHorizontal, Users } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { dataError, getCompanies, getSources, isLive, isNew, timeAgo } from '../data/api'
+import { dataError, getCompanies, getSeller, getSources, isLive, isNew, timeAgo } from '../data/api'
+import { logout } from '../data/client'
 import { Avatar } from './ui'
 
 function Logo() {
@@ -67,7 +68,26 @@ function TopBar() {
             </span>
           )}
         </button>
-        <Avatar name="Ana Rusu" size={32} />
+        {getSeller() ? (
+          <>
+            <span className="hidden text-right leading-tight md:block">
+              <span className="block text-[13px] font-bold">{getSeller()!.full_name}</span>
+              <span className="block text-[11px] text-faint">{getSeller()!.role === 'admin' ? 'Administrator' : 'Vânzător'}</span>
+            </span>
+            <Avatar name={getSeller()!.full_name} size={32} />
+            <button
+              type="button"
+              className="p-1 hover:text-orange"
+              aria-label="Ieșire din cont"
+              title="Ieșire"
+              onClick={() => void logout().finally(() => window.location.reload())}
+            >
+              <LogOut size={19} />
+            </button>
+          </>
+        ) : (
+          <Avatar name={null} size={32} />
+        )}
       </div>
     </header>
   )

@@ -23,7 +23,9 @@ export const QUESTIONS: SignalQuestion[] = [
   { id: 'n3', service: null, weight: 'medium', polarity: 'negative', active: true, text: 'Compania are sub 20 de angajați?' },
 ]
 
-export const COMPANIES: Company[] = [
+type MockCompany = Omit<Company, 'sellerId' | 'leadIds' | 'bestServiceApiId'>
+
+const MOCK_COMPANIES: MockCompany[] = [
   {
     id: 'carpathia-bank', name: 'Carpathia Bank', domain: 'carpathiabank.example', industry: 'Servicii bancare', country: 'RO', countryName: 'România', employees: '2.400',
     stage: 'nou', owner: null, score: 91, prevScore: 78, serviceScores: { automation: 88, cyber: 64, digital: 55 },
@@ -173,6 +175,9 @@ export const COMPANIES: Company[] = [
     ],
   },
 ]
+
+// Demo data has no backend ids: nothing to save to PostgreSQL or send to HubSpot.
+export const COMPANIES: Company[] = MOCK_COMPANIES.map((c) => ({ ...c, sellerId: null, leadIds: [], bestServiceApiId: null }))
 
 export const SOURCES: SourceStatus[] = [
   { id: 'greenhouse', name: 'Greenhouse / Lever / Ashby', category: 'Joburi', tier: 'snapshot', lastRun: ago(0.6), status: 'ok', newItems: 14 },

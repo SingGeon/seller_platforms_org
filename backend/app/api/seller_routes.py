@@ -1,13 +1,16 @@
 """Seller accounts (login, admin user management) and the CRM state of each lead
-(pipeline stage, owner, notes). All of it lives in PostgreSQL."""
+(pipeline stage, owner, notes), all in PostgreSQL; plus the MongoDB activity log and the
+cross-database integrity check."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pymongo import DESCENDING
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from .. import integrity, mongo
 from ..auth import bearer_token, current_seller, hash_password, issue_token, optional_seller, require_admin, revoke_token, verify_password
 from ..models import LeadAssignment, Seller
 from ..schemas import AssignmentIn, AssignmentOut, LoginIn, NoteIn, SellerCreate, SellerOut, SellerUpdate, TokenOut
@@ -17,18 +20,25 @@ router = APIRouter()
 
 
 # ------------------------------------------------------------------ auth
+@router.get("/auth/status", tags=["auth"], summary="Is login required, and does the first (admin) account still need to be created?")
+def auth_status(request: Request, db: Session = Depends(get_db)):
+    return {"auth_required": request.app.state.auth_required, "has_sellers": (db.scalar(select(func.count(Seller.id))) or 0) > 0}
+
+
 @router.post("/auth/login", response_model=TokenOut, tags=["auth"])
 def login(body: LoginIn, db: Session = Depends(get_db)):
     seller = db.scalar(select(Seller).where(func.lower(Seller.email) == body.email.strip().lower()))
     if seller is None or not seller.active or not verify_password(body.password, seller.password_hash):
         raise HTTPException(401, "Wrong email or password")
     token, expires = issue_token(db, seller)
+    mongo.log_activity("login", seller)
     return TokenOut(access_token=token, expires_at=expires, seller=SellerOut.model_validate(seller))
 
 
 @router.post("/auth/logout", status_code=204, tags=["auth"])
-def logout(request: Request, db: Session = Depends(get_db), _: Seller = Depends(current_seller)):
+def logout(request: Request, db: Session = Depends(get_db), seller: Seller = Depends(current_seller)):
     revoke_token(db, bearer_token(request) or "")
+    mongo.log_activity("logout", seller)
     return Response(status_code=204)
 
 
@@ -82,6 +92,8 @@ def delete_seller(seller_id: int, db: Session = Depends(get_db), admin: Seller =
         raise HTTPException(422, "You cannot delete your own account")
     db.delete(get_or_404(db, Seller, seller_id))
     db.commit()
+    # Mongo keeps the seller's name in the log; only the id reference is cleared.
+    mongo.db()[mongo.SIGNALS].update_many({"seller_id": seller_id}, {"$set": {"seller_id": None}})
     return Response(status_code=204)
 
 
@@ -143,3 +155,27 @@ def add_note(company_id: int, body: NoteIn, db: Session = Depends(get_db), selle
     db.commit()
     db.refresh(a)
     return _assignment_out(a)
+
+
+# ------------------------------------------------------------------ activity log (MongoDB) and cross-database integrity
+@router.get("/activity", tags=["crm"], summary="Who did what, newest first (MongoDB activity_log; seller ids from PostgreSQL)")
+def activity(company_id: int | None = None, seller_id: int | None = None, limit: int = 100, _: Seller = Depends(current_seller)):
+    q: dict = {}
+    if company_id is not None:
+        q["company_id"] = company_id
+    if seller_id is not None:
+        q["seller_id"] = seller_id
+    rows = mongo.db()[mongo.ACTIVITY].find(q, {"_id": 0}).sort("t", DESCENDING).limit(min(limit, 1000))
+    return list(rows)
+
+
+@router.get("/admin/integrity", tags=["admin"], summary="Cross-database check: references between PostgreSQL and MongoDB")
+def integrity_check(db: Session = Depends(get_db), _: Seller = Depends(require_admin)):
+    return integrity.public(integrity.check(db))
+
+
+@router.post("/admin/integrity/repair", tags=["admin"], summary="Remove orphans left in either database")
+def integrity_repair(db: Session = Depends(get_db), admin: Seller = Depends(require_admin)):
+    result = integrity.repair(db)
+    mongo.log_activity("integrity_repair", admin, removed=result["removed"])
+    return result

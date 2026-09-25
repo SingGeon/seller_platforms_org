@@ -1,7 +1,9 @@
-import { ChevronRight, ExternalLink, Globe, Send, Sparkles, UserSearch } from 'lucide-react'
-import { useState } from 'react'
+import { ChevronRight, Copy, ExternalLink, Globe, Send, Sparkles, UserSearch } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { STAGES, getCompany, getQuestions, getServices, isNew, timeAgo } from '../data/api'
+import { STAGES, getCompany, getQuestions, getSeller, getServices, isLive, isNew, patchCompany, timeAgo } from '../data/api'
+import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
+import { listSellers, type Seller } from '../data/client'
 import type { Company as CompanyT, Signal, Stage } from '../data/types'
 import {
   Avatar,
@@ -67,9 +69,20 @@ function SignalCard({ s }: { s: Signal }) {
   )
 }
 
-function Timeline({ c }: { c: CompanyT }) {
+const ACTION_RO: Record<string, string> = {
+  'PUT /companies/{company_id}/assignment': 'Stadiu sau responsabil schimbat',
+  'POST /companies/{company_id}/notes': 'Notă adăugată',
+  'POST /companies/{company_id}/manual-signal': 'Semnal validat manual',
+  'POST /companies/{company_id}/outreach': 'Mesaj de contact generat',
+  'PUT /companies/{company_id}': 'Date companie modificate',
+  'PUT /companies/{company_id}/linkedin': 'Validare LinkedIn',
+  'POST /companies/{company_id}/explain': 'Explicație AI regenerată',
+}
+
+function Timeline({ c, activity }: { c: CompanyT; activity: Activity[] }) {
   const events = [
     ...c.signals.map((s) => ({ date: s.date, title: s.title, meta: s.source, negative: s.points < 0 })),
+    ...activity.map((a) => ({ date: a.t, title: ACTION_RO[a.action] ?? a.action, meta: a.seller ?? 'Sistem', negative: false })),
     { date: c.firstSeen, title: 'Companie descoperită automat', meta: 'LeadRadar', negative: false },
   ].sort((a, b) => b.date.localeCompare(a.date))
   return (
@@ -86,13 +99,23 @@ function Timeline({ c }: { c: CompanyT }) {
   )
 }
 
-function Notes() {
-  const [notes, setNotes] = useState<{ text: string; at: string }[]>([])
+function Notes({ companyId, notes, onChange }: { companyId: string; notes: Note[]; onChange: (n: Note[]) => void }) {
   const [draft, setDraft] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const add = () => {
     if (!draft.trim()) return
-    setNotes([{ text: draft.trim(), at: new Date().toISOString() }, ...notes])
-    setDraft('')
+    if (!isLive()) {
+      onChange([...notes, { t: new Date().toISOString(), seller_id: 0, author: 'Demo', text: draft.trim() }])
+      setDraft('')
+      return
+    }
+    addNote(companyId, draft.trim())
+      .then((a) => {
+        onChange(a.notes)
+        setDraft('')
+        setError(null)
+      })
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
   }
   return (
     <div>
@@ -112,11 +135,12 @@ function Notes() {
           Salvează nota
         </Button>
       </div>
+      {error && <p className="mt-2 font-bold text-danger" role="alert">{error}</p>}
       <ul className="mt-4 space-y-3">
-        {notes.map((n, i) => (
+        {[...notes].reverse().map((n, i) => (
           <li key={i} className="border border-line p-4">
             <p className="text-[12px] text-muted">
-              Ana Rusu · {timeAgo(n.at)}
+              {n.author} · {timeAgo(n.t)}
             </p>
             <p className="mt-1">{n.text}</p>
           </li>
@@ -127,13 +151,134 @@ function Notes() {
   )
 }
 
+function Message({ c }: { c: CompanyT }) {
+  const [channel, setChannel] = useState<'email' | 'linkedin' | 'followup'>('email')
+  const [language, setLanguage] = useState<'RO' | 'EN' | 'DE'>('RO')
+  const [draft, setDraft] = useState<Outreach | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const canGenerate = isLive() && c.bestServiceApiId != null
+
+  const generate = () => {
+    if (c.bestServiceApiId == null) return
+    setBusy(true)
+    setError(null)
+    generateOutreach(c.id, c.bestServiceApiId, channel, language)
+      .then(setDraft)
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-end gap-3">
+        <label>
+          <span className="mb-1 block text-[13px] font-bold">Canal</span>
+          <select value={channel} onChange={(e) => setChannel(e.target.value as typeof channel)} className="h-10">
+            <option value="email">Email</option>
+            <option value="linkedin">Mesaj LinkedIn</option>
+            <option value="followup">Follow-up</option>
+          </select>
+        </label>
+        <label>
+          <span className="mb-1 block text-[13px] font-bold">Limba</span>
+          <select value={language} onChange={(e) => setLanguage(e.target.value as typeof language)} className="h-10">
+            <option value="RO">Română</option>
+            <option value="EN">Engleză</option>
+            <option value="DE">Germană</option>
+          </select>
+        </label>
+        <Button variant="primary" onClick={generate} disabled={!canGenerate || busy}>
+          <Send size={16} aria-hidden /> {busy ? 'Se scrie…' : 'Generează'}
+        </Button>
+      </div>
+      {!canGenerate && <p className="mt-3 text-muted">Disponibil când datele vin din backend și compania are un scor.</p>}
+      {error && <p className="mt-3 font-bold text-danger" role="alert">{error}</p>}
+      {draft && (
+        <div className="mt-5 border border-line p-5">
+          {draft.subject && <p className="mb-3 font-bold">Subiect: {draft.subject}</p>}
+          <p className="whitespace-pre-wrap leading-relaxed">{draft.body || '(AI-ul nu a scris niciun text: fără cheie Anthropic se folosește modul offline.)'}</p>
+          <div className="mt-4 flex flex-wrap items-center gap-3 text-[12px] text-muted">
+            <span className={draft.grounded ? 'font-bold text-ok' : 'font-bold text-warn'}>
+              {draft.grounded ? 'Bazat pe semnale reale' : 'Nu citează niciun semnal: verifică înainte de trimitere'}
+            </span>
+            {draft.sources.map((s) => (
+              <a key={s.url} href={s.url} target="_blank" rel="noreferrer" className="underline">
+                sursă
+              </a>
+            ))}
+            <Button size="sm" className="ml-auto" onClick={() => void navigator.clipboard?.writeText(`${draft.subject ? `${draft.subject}\n\n` : ''}${draft.body}`)}>
+              <Copy size={14} aria-hidden /> Copiază
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type Tab = 'signals' | 'timeline' | 'notes' | 'message'
 
 export default function Company() {
   const { id = '' } = useParams()
   const c = getCompany(id)
   const [stage, setStage] = useState<Stage | undefined>(c?.stage)
+  const [sellerId, setSellerId] = useState<number | null>(c?.sellerId ?? null)
   const [tab, setTab] = useState<Tab>('signals')
+  const [sellers, setSellers] = useState<Seller[]>([])
+  const [notes, setNotes] = useState<Note[]>([])
+  const [activity, setActivity] = useState<Activity[]>([])
+  const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
+  const live = isLive() && getSeller() != null
+
+  const cid = c?.id
+  useEffect(() => {
+    if (!live || !cid) return
+    listSellers().then(setSellers).catch(() => setSellers([]))
+    getAssignment(cid).then((a) => setNotes(a.notes)).catch(() => setNotes([]))
+    getActivity(cid).then(setActivity).catch(() => setActivity([]))
+  }, [live, cid])
+
+  const fail = (err: unknown) => setStatus({ ok: false, text: err instanceof Error ? err.message : String(err) })
+
+  const changeStage = (next: Stage) => {
+    if (!c) return
+    const prev = stage
+    setStage(next)
+    if (!live) return
+    saveAssignment(c.id, { stage: next })
+      .then(() => {
+        patchCompany(c.id, { stage: next })
+        setStatus({ ok: true, text: 'Stadiu salvat.' })
+      })
+      .catch((err) => {
+        setStage(prev)
+        fail(err)
+      })
+  }
+
+  const changeOwner = (value: string) => {
+    if (!c) return
+    const next = value ? Number(value) : null
+    setSellerId(next)
+    if (!live) return
+    saveAssignment(c.id, next == null ? { unassign: true } : { seller_id: next })
+      .then((a) => {
+        patchCompany(c.id, { sellerId: a.seller_id, owner: a.owner })
+        setStatus({ ok: true, text: a.owner ? `Asignat lui ${a.owner}.` : 'Lead neasignat.' })
+      })
+      .catch(fail)
+  }
+
+  const hubspot = () => {
+    if (!c || !live || c.leadIds.length === 0) return
+    sendToHubspot(c.leadIds)
+      .then((res) => {
+        const ok = res.filter((r) => r.ok).length
+        setStatus(ok ? { ok: true, text: `Trimis în HubSpot (${ok} lead-uri).` } : { ok: false, text: res[0]?.error ?? 'HubSpot a refuzat cererea.' })
+      })
+      .catch(fail)
+  }
 
   if (!c)
     return (
@@ -150,7 +295,7 @@ export default function Company() {
   const tabs: [Tab, string][] = [
     ['signals', `Semnale (${c.signals.length})`],
     ['timeline', 'Cronologie'],
-    ['notes', 'Note'],
+    ['notes', `Note (${notes.length})`],
     ['message', 'Mesaj de contact'],
   ]
 
@@ -188,7 +333,7 @@ export default function Company() {
             <label className="sr-only" htmlFor="stage">
               Stadiu
             </label>
-            <select id="stage" value={stage} onChange={(e) => setStage(e.target.value as Stage)} className="h-10 font-bold">
+            <select id="stage" value={stage} onChange={(e) => changeStage(e.target.value as Stage)} className="h-10 font-bold">
               {STAGES.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
@@ -204,12 +349,19 @@ export default function Company() {
             >
               <UserSearch size={16} aria-hidden /> LinkedIn
             </a>
-            <Button>Trimite în HubSpot</Button>
+            <Button onClick={hubspot} disabled={!live || c.leadIds.length === 0} title={live ? 'Creează / actualizează compania în HubSpot, cu o notă' : 'Necesită date din backend'}>
+              Trimite în HubSpot
+            </Button>
             <Button variant="primary" onClick={() => setTab('message')}>
               <Send size={16} aria-hidden /> Generează mesaj
             </Button>
           </div>
         </div>
+        {status && (
+          <p className={`border-t border-line px-6 py-2 text-[13px] font-bold ${status.ok ? 'text-ok' : 'text-danger'}`} role="status">
+            {status.text}
+          </p>
+        )}
       </Panel>
 
       <div className="grid gap-6 lg:grid-cols-[340px_1fr]">
@@ -258,7 +410,19 @@ export default function Company() {
             <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-3 p-5 text-[14px]">
               <dt className="text-muted">Responsabil</dt>
               <dd className="flex items-center gap-2 font-bold">
-                <Avatar name={c.owner} size={22} /> {c.owner ?? 'Neasignat'}
+                <Avatar name={sellers.find((s) => s.id === sellerId)?.full_name ?? c.owner} size={22} />
+                {live ? (
+                  <select value={sellerId ?? ''} onChange={(e) => changeOwner(e.target.value)} className="h-8 min-w-0 flex-1 text-[13px]" aria-label="Responsabil">
+                    <option value="">Neasignat</option>
+                    {sellers.filter((s) => s.active).map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  (c.owner ?? 'Neasignat')
+                )}
               </dd>
               <dt className="text-muted">Industrie</dt>
               <dd>{c.industry}</dd>
@@ -312,22 +476,17 @@ export default function Company() {
               )}
               {tab === 'timeline' && (
                 <Panel className="p-6">
-                  <Timeline c={c} />
+                  <Timeline c={c} activity={activity} />
                 </Panel>
               )}
               {tab === 'notes' && (
                 <Panel className="p-6">
-                  <Notes />
+                  <Notes companyId={c.id} notes={notes} onChange={setNotes} />
                 </Panel>
               )}
               {tab === 'message' && (
-                <Panel className="p-8 text-center">
-                  <Send size={28} className="mx-auto text-orange" aria-hidden />
-                  <h3 className="mt-3 text-[18px]">Mesaj personalizat — în lucru</h3>
-                  <p className="mx-auto mt-2 max-w-md text-muted">
-                    AI-ul va scrie un email, un mesaj LinkedIn și un follow-up pe baza celor {positives.length} semnale ale companiei
-                    (GIG-38).
-                  </p>
+                <Panel className="p-6">
+                  <Message c={c} />
                 </Panel>
               )}
             </div>
