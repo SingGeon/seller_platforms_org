@@ -67,7 +67,7 @@ cd ../frontend && npm run build  # type-check + production build
 
 | Part | Host | Config |
 |---|---|---|
-| Frontend | Netlify | `frontend/netlify.toml`; site variable `VITE_API_URL` = the Render URL |
+| Frontend | Netlify (site linked to this GitHub repo, redeploys on push) | `netlify.toml` (base `frontend/`); site variable `VITE_API_URL` = the Render URL |
 | Backend API | Render (free web service, Frankfurt) | `render.yaml` Blueprint: builds `pipeline` + `backend`, runs migrations and the config seed on start |
 | PostgreSQL | Neon (free) | `DATABASE_URL` = direct (not `-pooler`) connection string with `sslmode=require`, `DATABASE_SCHEMA=LeadRadar` |
 | MongoDB | MongoDB Atlas (free M0) | `MONGO_URI` = `mongodb+srv://...`, `MONGO_DB=leadradar`; Network Access must allow Render (0.0.0.0/0) |

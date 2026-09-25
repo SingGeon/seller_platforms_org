@@ -1,0 +1,15 @@
+# Netlify build for the React app in frontend/ (works for a site linked to this GitHub repository, whatever
+# its UI settings). VITE_API_URL (the Render API URL) is a site environment variable: Vite bakes it in at build time.
+[build]
+  base = "frontend"
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Single-page app: every route (/leads/12, /admin, ...) is served by index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
