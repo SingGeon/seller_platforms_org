@@ -1,0 +1,34 @@
+from collections.abc import Iterator
+
+from sqlalchemy import JSON, create_engine
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+from .config import get_settings
+
+# JSONB on PostgreSQL, plain JSON elsewhere (SQLite in tests).
+JSONType = JSON().with_variant(JSONB(), "postgresql")
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+def make_engine(url: str | None = None):
+    url = url or get_settings().database_url
+    kwargs = {"pool_pre_ping": True}
+    if url.startswith("sqlite"):
+        kwargs = {"connect_args": {"check_same_thread": False}}
+    return create_engine(url, **kwargs)
+
+
+engine = make_engine()
+SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+
+
+def get_db() -> Iterator[Session]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

@@ -1,0 +1,53 @@
+[
+  {
+    "domain": "lufthansagroup.com",
+    "documents": [
+      {
+        "source_type": "news",
+        "url": "https://annex1.example/lufthansa/efficiency-programme",
+        "title": "Lufthansa Group sets efficiency targets, plans to cut about 4,000 administrative positions by 2030",
+        "text": "Lufthansa Group has announced efficiency and profitability improvement targets. The group plans to reduce approximately 4,000 administrative positions by 2030 through digitalization, automation and process consolidation. AI and digitalization are explicitly named as drivers of process efficiency across the Group.",
+        "days_ago": 20,
+        "source": "Annex 1 sample"
+      },
+      {
+        "source_type": "web",
+        "url": "https://annex1.example/lufthansa/it-capabilities",
+        "title": "Strengthening IT and digital capabilities across the Group",
+        "text": "Lufthansa Group is strengthening IT and digital capabilities across the Group. The company already has strong internal digitalization and automation capabilities, built up by its in-house technology units over several years.",
+        "days_ago": 60,
+        "source": "Annex 1 sample"
+      },
+      {
+        "source_type": "jobs",
+        "url": "https://annex1.example/lufthansa/jobs/automation-engineer",
+        "title": "Automation Engineer (RPA / AI) - Process Excellence",
+        "text": "Job posting at Lufthansa Group: Automation Engineer (RPA / AI) in the Process Excellence team. You will build RPA bots with UiPath and AI agents to automate administrative processes.",
+        "days_ago": 12,
+        "source": "Annex 1 sample",
+        "meta": {"job_title": "Automation Engineer (RPA / AI)", "categories": ["RPA", "AI/ML", "Process Excellence"]}
+      }
+    ]
+  },
+  {
+    "domain": "group.dhl.com",
+    "documents": [
+      {
+        "source_type": "web",
+        "url": "https://annex1.example/dhl/strategy-2030",
+        "title": "DHL Group Strategy 2030: AI, automation and digitalization",
+        "text": "AI, automation and digitalization are part of DHL Group's Strategy 2030. DHL is already implementing Agentic AI use cases, and concrete business processes are being automated with AI, including RFQ processing and customer and operational communication.",
+        "days_ago": 45,
+        "source": "Annex 1 sample"
+      },
+      {
+        "source_type": "news",
+        "url": "https://annex1.example/dhl/ai-partners",
+        "title": "DHL combines internal development and third-party AI solutions",
+        "text": "DHL explicitly states that it uses both internal development and third-party AI solutions to accelerate AI adoption. The company already has a high level of maturity in automation and intelligent process automation.",
+        "days_ago": 25,
+        "source": "Annex 1 sample"
+      }
+    ]
+  }
+]

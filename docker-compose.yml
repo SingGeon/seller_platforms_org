@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: orange
+      POSTGRES_PASSWORD: orange
+      POSTGRES_DB: orange_signals
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orange -d orange_signals"]
+      interval: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://orange:orange@postgres:5432/orange_signals
+      SEED_ON_START: ${SEED_ON_START:-true}
+      SEED_ARGS: ${SEED_ARGS:---sample-docs}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

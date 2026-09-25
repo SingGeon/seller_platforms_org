@@ -1,0 +1,42 @@
+import os
+
+os.environ.setdefault("DATABASE_URL", "sqlite://")
+os.environ["OFFLINE_COLLECT"] = "true"
+os.environ["LLM_PROVIDER"] = "heuristic"
+os.environ.pop("ANTHROPIC_API_KEY", None)
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app import models  # noqa: F401
+from app.db import Base
+from app.main import create_app
+from app.seed import seed_companies, seed_config, seed_sample_documents
+from sales_pipeline import HeuristicBackend
+
+
+@pytest.fixture()
+def session_factory():
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    engine.dispose()
+
+
+@pytest.fixture()
+def seeded(session_factory):
+    with session_factory() as db:
+        seed_config(db)
+        seed_companies(db)
+        seed_sample_documents(db)
+    return session_factory
+
+
+@pytest.fixture()
+def client(seeded):
+    app = create_app(seeded, llm_override=HeuristicBackend())
+    with TestClient(app) as c:
+        yield c
