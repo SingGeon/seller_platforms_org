@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     # PostgreSQL: seller accounts, sessions, lead assignments and configuration (services, ICP,
     # questions, rules, scoring, source state).
-    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/MT"
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/LDR"
     # MongoDB: companies and everything about them (documents, AI signals, alerts/events, scores),
     # the LLM cache and pipeline run logs.
     mongo_uri: str = "mongodb://localhost:27017"

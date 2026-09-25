@@ -2,9 +2,9 @@
 -- Companies, documents, AI signals, alerts, scores, run logs and the LLM cache live in MongoDB
 -- (README "Databases", backend/app/mongo.py).
 --
--- Run it in DBeaver on the MT database (SQL Editor -> Execute script, Alt+X). Everything goes into the
+-- Run it in DBeaver on the LDR database (SQL Editor -> Execute script, Alt+X). Everything goes into the
 -- "LeadRadar" schema; the app then connects with
---   DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/MT?options=-csearch_path%3D%22LeadRadar%22
+--   DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/LDR?options=-csearch_path%3D%22LeadRadar%22
 -- Equivalent to `alembic upgrade head` (the source of truth is backend/alembic/versions); the
 -- alembic_version row at the end tells Alembic this schema is already at revision 0003.
 

@@ -2,11 +2,11 @@
     // Local development databases, see README "Databases". SQLTools asks for the password on connect.
     "sqltools.connections": [
         {
-            "name": "LeadRadar PostgreSQL (MT)",
+            "name": "LeadRadar PostgreSQL (LDR)",
             "driver": "PostgreSQL",
             "server": "localhost",
             "port": 5433,
-            "database": "MT",
+            "database": "LDR",
             "username": "postgres",
             "askForPassword": true,
             "previewLimit": 50
