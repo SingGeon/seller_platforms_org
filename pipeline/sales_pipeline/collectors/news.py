@@ -1,11 +1,12 @@
-"""News collection: GDELT DOC API (primary, free), NewsAPI (supplement) and
-Google News RSS (GIG-20)."""
+"""News collection per company (GIG-20): Google News RSS and Bing News RSS (free, no key, local-language
+editions), GDELT DOC API (free, 1 request / 5 s) and NewsAPI (key). Bulk runs also use the business-press
+feeds in sources/localnews.py, which cover every company with one request per outlet."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import quote_plus
+from urllib.parse import parse_qs, quote_plus, urlparse
 
 import feedparser
 import httpx
@@ -20,6 +21,12 @@ GOOGLE_EDITIONS = {
     "RO": ("ro", "RO", "RO:ro"), "MD": ("ro", "MD", "MD:ro"), "DE": ("de", "DE", "DE:de"), "AT": ("de", "AT", "AT:de"),
     "FR": ("fr", "FR", "FR:fr"), "NL": ("nl", "NL", "NL:nl"), "PL": ("pl", "PL", "PL:pl"), "IT": ("it", "IT", "IT:it"),
     "ES": ("es", "ES", "ES:es"), "GB": ("en-GB", "GB", "GB:en"), "US": ("en-US", "US", "US:en"),
+}
+
+# Bing News market per company country: (setlang, cc). MD has no own edition; the Romanian one covers it.
+BING_MARKETS = {
+    "RO": ("ro", "RO"), "MD": ("ro", "RO"), "DE": ("de", "DE"), "AT": ("de", "AT"), "FR": ("fr", "FR"), "NL": ("nl", "NL"),
+    "PL": ("pl", "PL"), "IT": ("it", "IT"), "ES": ("es", "ES"), "GB": ("en", "GB"), "US": ("en", "US"),
 }
 
 log = logging.getLogger(__name__)
@@ -152,18 +159,55 @@ async def fetch_google_news(client: httpx.AsyncClient, company: CompanyInfo, key
     return docs
 
 
+def _bing_target(link: str) -> str:
+    """Bing wraps every article in apiclick.aspx?...&url=<real url>; keep the publisher's URL."""
+    target = parse_qs(urlparse(link).query).get("url", [""])[0]
+    return target or link
+
+
+async def fetch_bing_news(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str] | None = None) -> list[Document]:
+    """Latest articles naming the company, from Bing News in the company's market (no key, ~12 items)."""
+    setlang, cc = BING_MARKETS.get(company.country or "US", BING_MARKETS["US"])
+    query = quote_plus(f'"{search_name(company.name)}"')
+    resp = await polite_request(client, "GET", f"https://www.bing.com/news/search?q={query}&format=rss&setlang={setlang}&cc={cc}", retries=2)
+    resp.raise_for_status()
+    docs = []
+    for entry in feedparser.parse(resp.text).entries:
+        if not entry.get("link"):
+            continue
+        published = None
+        if entry.get("published"):
+            try:
+                published = parsedate_to_datetime(entry.published)
+            except (TypeError, ValueError):
+                published = None
+        title = clean_text(entry.get("title", ""))
+        docs.append(
+            Document(
+                source_type="news",
+                url=_bing_target(entry.link),
+                title=title,
+                text=clean_text(f"{title}. {entry.get('summary', '')}"),
+                published_at=published,
+                source=entry.get("news_source") or "bing-news",
+                meta={"provider": "bing_news_rss"},
+            )
+        )
+    return docs
+
+
 async def collect_news(
     company: CompanyInfo,
     *,
     newsapi_key: str | None = None,
     keywords: list[str] | None = None,
     client: httpx.AsyncClient | None = None,
-    providers: tuple[str, ...] = ("gdelt", "google_news", "newsapi"),
+    providers: tuple[str, ...] = ("gdelt", "google_news", "bing_news", "newsapi"),
 ) -> list[Document]:
     """Collect and deduplicate news for one company from every configured provider.
 
     A failing provider is logged and skipped so one outage never empties a run. Bulk runs
-    over thousands of companies pass providers=("google_news",): GDELT allows 1 request / 5 s.
+    over thousands of companies pass providers=("google_news", "bing_news"): GDELT allows 1 request / 5 s.
     """
     keywords = keywords or DEFAULT_KEYWORDS
     own_client = client is None
@@ -174,6 +218,8 @@ async def collect_news(
             jobs.append(("gdelt", fetch_gdelt(client, company, keywords)))
         if "google_news" in providers:
             jobs.append(("google_news", fetch_google_news(client, company, keywords)))
+        if "bing_news" in providers:
+            jobs.append(("bing_news", fetch_bing_news(client, company, keywords)))
         if newsapi_key and "newsapi" in providers:
             jobs.append(("newsapi", fetch_newsapi(client, company, keywords, newsapi_key)))
         docs: list[Document] = []

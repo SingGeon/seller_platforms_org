@@ -77,7 +77,8 @@ The platform works in two modes. Limits, keys and fallbacks for every source are
   PR Newswire, GlobeNewswire, Bing News, NewsData.io, Currents, ransomware.live, HIBP, DataBreaches.net,
   SEC 8-K Item 1.05 / 5.02 and SEC Form D.
 - **Enrichment (company → signals)** runs per company inside enrichment runs: company news (local-language Google
-  News, throttled GDELT, NewsAPI), website crawl and tech stack, ATS boards (Greenhouse, Lever, Ashby, Workable,
+  News and Bing News, throttled GDELT, NewsAPI; in bulk runs also the RO / MD business press: ZF, Economica, Profit,
+  StartupCafe, HotNews, G4Media, Biziday, NewsMaker, Ziarul de Gardă, Bani.md, Diez), website crawl and tech stack, ATS boards (Greenhouse, Lever, Ashby, Workable,
   SmartRecruiters, Recruitee, Personio), SerpAPI Google Jobs (top N only), Wikidata and GLEIF firmographics
   (Crunchbase replacement), CISA KEV matched against the detected tech stack, and SEC 10-K language for US companies.
 
@@ -105,6 +106,7 @@ One command loads real companies from open registries, fetches their news and sc
 cd backend
 python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000 --gleif-fill --enrich-top 30
 python -m app.bootstrap --refresh-news    # later: news only for the stored companies, then re-score
+python -m app.bootstrap --refresh-news --news-providers bing_news   # while Google News answers 503
 # or via the API: POST /bootstrap/runs {"countries": ["RO","MD","DE"], "target": 1000, "enrich_top_n": 30}
 ```
 
@@ -112,8 +114,13 @@ python -m app.bootstrap --refresh-news    # later: news only for the stored comp
    Wikipedia sitelinks), with industry (mapped onto the ICP vocabulary), employees, LEI and stock listing. Countries
    with few Wikidata companies (e.g. MD) hand their shortfall to the others; `--gleif-fill` tops up with registered
    legal entities from GLEIF (legal name and LEI only).
-2. **News**: real articles per company from Google News in the company's language (at most one request every 2 s,
-   2 in parallel, retried on 429 / 5xx and on network errors). Only articles that name the company are kept.
+2. **News**, from three kinds of sources:
+   - **business press of RO / MD**: 11 outlets' RSS feeds (older pages too where the site allows it), fetched once and
+     matched to every company by name. One-word names must match with exact capitalisation, and those that are
+     usually people or places (e.g. "Roman") are skipped, so an article about a person is not filed under a company;
+   - **Bing News** per company, in the company's market edition (no key, ~12 latest articles, 1 request / 1.5 s);
+   - **Google News** per company (at most one request every 2 s, 2 in parallel).
+   Requests are retried on 429 / 5xx and on network errors, and only articles that name the company are kept.
    Google News answers 503 for hours when it is queried faster; `--refresh-news` fetches news later for the
    companies that have none from the last 24 h, without calling the registries again. `--gdelt` adds GDELT, which is much slower (1 request per 5 s).
 3. **Analysis**: every company × service is answered and scored. The offline heuristic is free; Claude runs when
@@ -463,7 +470,7 @@ LinkedIn validation form behind `PUT /companies/{id}/linkedin`.
 
 | Task | Status in code |
 |---|---|
-| GIG-14 Sources, keys, limits | Source catalogue with limits/fallback (`docs/data-sources.md`), 25 discovery + 8 enrichment sources, cursors, throttling (GDELT ≥ 5 s, SEC 10 req/s), 429 backoff, `/sources` status API, scheduler, live smoke script |
+| GIG-14 Sources, keys, limits | Source catalogue with limits/fallback (`docs/data-sources.md`), 25 discovery + 9 enrichment sources (incl. RO / MD business press and Bing News), cursors, throttling (GDELT ≥ 5 s, SEC 10 req/s), 429 backoff, `/sources` status API, scheduler, live smoke script |
 | GIG-12 Repo setup | Structure, `.env.example`, local run without containers (see Quick start) |
 | GIG-13 Database schema | PostgreSQL for sellers + configuration (`backend/app/models.py`, Alembic `0001`-`0003`), MongoDB for companies, AI data and logs (`backend/app/mongo.py`), see [Databases](#databases) |
 | GIG-15 ICP | `/icp` CRUD, fit score 0–100 with partial matches, `min_fit` filter |

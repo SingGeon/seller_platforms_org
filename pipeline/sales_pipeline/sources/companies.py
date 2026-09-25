@@ -10,13 +10,16 @@ import unicodedata
 
 LEGAL_SUFFIXES = [
     "incorporated", "inc", "corporation", "corp", "company", "co", "limited", "ltd", "llc", "llp", "lp", "plc",
-    "gmbh", "ag", "kg", "kgaa", "se", "sa", "s a", "sas", "sarl", "srl", "s r l", "spa", "s p a", "bv", "nv", "ab",
+    "gmbh", "ag", "kg", "kgaa", "se", "sa", "s a", "sas", "sarl", "srl", "s r l", "spa", "s p a", "bv", "b v", "nv", "n v", "ab",
     "as", "a s", "asa", "oy", "oyj", "sp z o o", "sro", "s r o", "doo", "d o o", "kft", "zrt", "nyrt", "pte", "pty",
     "aktiengesellschaft", "gesellschaft mit beschrankter haftung", "societe anonyme", "sociedad anonima", "societa per azioni",
     "spolka akcyjna", "spolka z ograniczona odpowiedzialnoscia", "societate pe actiuni", "societate cu raspundere limitata",
     "naamloze vennootschap", "besloten vennootschap", "aktiebolag", "public limited company",
     "holding", "holdings", "group", "the",
 ]
+# Romanian "S.C." (societate comerciala) written before the name: "S.C. Electrica S.A." = "Electrica".
+_PREFIX_RE = re.compile(r"^s\s*c\s+")
+_DISPLAY_PREFIX_RE = re.compile(r"^S\.?\s*C\.?\s+", re.I)
 _SUFFIX_RE = re.compile(r"(?:\s+(?:" + "|".join(re.escape(s) for s in sorted(LEGAL_SUFFIXES, key=len, reverse=True)) + r"))+$")
 
 
@@ -31,6 +34,7 @@ def normalize_company_name(name: str) -> str:
     s = s.lower().replace("&", " and ")
     s = re.sub(r"[^a-z0-9]+", " ", s).strip()
     s = re.sub(r"^the\s+", "", s)
+    s = _PREFIX_RE.sub("", s)
     prev = None
     while prev != s:
         prev = s
@@ -49,6 +53,7 @@ _DISPLAY_SUFFIX_RE = re.compile(
 def search_name(name: str) -> str:
     """Name as the press writes it: 'Banca Transilvania S.A.' -> 'Banca Transilvania' (case kept)."""
     s = re.sub(r"\s*\(.*?\)\s*", " ", name or "").strip()
+    s = _DISPLAY_PREFIX_RE.sub("", s)
     stripped = _DISPLAY_SUFFIX_RE.sub("", s).strip(" ,.")
     return stripped or s
 

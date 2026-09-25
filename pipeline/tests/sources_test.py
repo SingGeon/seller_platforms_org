@@ -38,7 +38,7 @@ def run(coro):
 # ------------------------------------------------------------------ company names
 @pytest.mark.parametrize("raw,expected", [
     ("GitLab Inc.", "gitlab"), ("GITLAB INC  (GTLB)  (CIK 0001653482)", "gitlab"), ("Deutsche Lufthansa AG", "deutsche lufthansa"),
-    ("S.C. Orange Romania S.A.", "s c orange romania"), ("The Coca-Cola Company", "coca cola"), ("Raiffeisen Bank International AG", "raiffeisen bank international"),
+    ("S.C. Orange Romania S.A.", "orange romania"), ("The Coca-Cola Company", "coca cola"), ("Raiffeisen Bank International AG", "raiffeisen bank international"),
     ("Moldcell S.R.L.", "moldcell"), ("DHL Group", "dhl"),
 ])
 def test_normalize_company_name(raw, expected):

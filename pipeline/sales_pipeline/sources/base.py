@@ -120,6 +120,7 @@ class HostThrottle:
             "public.mtender.gov.md": 1.0,
             "query.wikidata.org": 1.0,
             "api.ted.europa.eu": 0.5,
+            "www.bing.com": 1.5,  # Bing News RSS, one request per company in bulk runs
             "news.google.com": 2.0,  # bulk runs query it once per company; faster answers 503 for hours
             "api.gleif.org": 1.0,  # 60 requests / minute
         }

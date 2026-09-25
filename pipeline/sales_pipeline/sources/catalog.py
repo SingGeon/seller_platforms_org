@@ -66,9 +66,15 @@ SOURCES: list[SourceSpec] = [
     SourceSpec("sec_form_d", "SEC Form D: new funding rounds", D, "corporate", "feed", 60, ["all"], requires=["sec_user_agent"],
                limits="As above; latest 100 filings per poll.", fallback="Press releases (funding).", coverage="US", sync=sync_sec_form_d),
     # ---------------------------------------------------------------- enrichment (per company; run by the orchestrator)
-    SourceSpec("company_news", "Company news: Google News (local edition) + GDELT + NewsAPI", E, "news", "incremental", 1440, ["all"],
-               limits="GDELT: 1 request / 5 s (throttled, retried on 429). NewsAPI: 100/day, dev-only, 24 h delay, 1 month history.",
-               fallback="Google News RSS is the primary source; GDELT and NewsAPI are supplements."),
+    SourceSpec("company_news", "Company news: Google News + Bing News (local editions) + GDELT + NewsAPI", E, "news", "incremental", 1440, ["all"],
+               limits="Google News: 1 request / 2 s, answers 503 for hours if queried faster. Bing News RSS: no key, ~12 latest "
+                      "articles, 1 request / 1.5 s. GDELT: 1 request / 5 s. NewsAPI: 100/day, dev-only, 24 h delay, 1 month history.",
+               fallback="Google News and Bing News cover each other; GDELT and NewsAPI are supplements."),
+    SourceSpec("business_press", "RO / MD business press RSS: ZF, Economica, Profit, StartupCafe, HotNews, G4Media, Biziday, "
+               "NewsMaker, Ziarul de Garda, Bani.md, Diez", E, "news", "feed", 60, ["all"],
+               limits="No key; one request per outlet (WordPress feeds paged for older articles) covers every company at once; "
+                      "articles are matched to companies by name (one-word names only with exact capitalisation).",
+               fallback="Google News / Bing News per company."),
     SourceSpec("company_website", "Company website crawl (newsroom, about, annual-report PDFs, tech stack)", E, "news", "daily", 1440, ["all"],
                limits="robots.txt respected, max 12 pages/domain, 1 s between requests.", fallback="Playwright for JS-rendered pages (USE_PLAYWRIGHT)."),
     SourceSpec("ats_boards", "Company ATS boards: Greenhouse, Lever, Ashby, Workable, SmartRecruiters, Recruitee, Personio", E, "jobs", "snapshot", 360, ["all"],
