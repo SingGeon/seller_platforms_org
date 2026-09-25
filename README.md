@@ -103,7 +103,8 @@ One command loads real companies from open registries, fetches their news and sc
 
 ```bash
 cd backend
-python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000 --enrich-top 30
+python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000 --gleif-fill --enrich-top 30
+python -m app.bootstrap --refresh-news    # later: news only for the stored companies, then re-score
 # or via the API: POST /bootstrap/runs {"countries": ["RO","MD","DE"], "target": 1000, "enrich_top_n": 30}
 ```
 
@@ -111,8 +112,10 @@ python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000 --enrich-
    Wikipedia sitelinks), with industry (mapped onto the ICP vocabulary), employees, LEI and stock listing. Countries
    with few Wikidata companies (e.g. MD) hand their shortfall to the others; `--gleif-fill` tops up with registered
    legal entities from GLEIF (legal name and LEI only).
-2. **News**: real articles per company from Google News in the company's language (throttled, retried on 429).
-   Only articles that name the company are kept. `--gdelt` adds GDELT, which is much slower (1 request per 5 s).
+2. **News**: real articles per company from Google News in the company's language (at most one request every 2 s,
+   2 in parallel, retried on 429 / 5xx and on network errors). Only articles that name the company are kept.
+   Google News answers 503 for hours when it is queried faster; `--refresh-news` fetches news later for the
+   companies that have none from the last 24 h, without calling the registries again. `--gdelt` adds GDELT, which is much slower (1 request per 5 s).
 3. **Analysis**: every company × service is answered and scored. The offline heuristic is free; Claude runs when
    `ANTHROPIC_API_KEY` is set.
 4. **Enrichment**: the `--enrich-top` best leads get the full crawl (website, ATS jobs, registries, CISA KEV, SEC).
@@ -120,6 +123,15 @@ python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000 --enrich-
 Every company keeps its registry reference (`registry_profiles.wikidata.wikidata_id` / `lei`), and every signal keeps
 its source URL, so nothing on screen is invented. Re-running is idempotent: companies are matched by domain /
 normalised name, documents by content hash, and news is not refetched within 24 h.
+
+**Wikidata in large countries.** The company query only considers companies with at least 3 Wikipedia articles and
+retries a timed-out page with smaller pages (250 → 100 → 50 → 25). Wikidata's public endpoint still times out or
+rate-limits (429) at busy times for DE, GB, PL and NL; their quota then goes to the other countries and GLEIF fills
+the rest, and a later re-run with `--countries DE,GB,PL,NL` adds them (companies are never duplicated).
+
+**Measured on 25 Sep 2026 (real sources):** 984 companies loaded (RO 508 + MD 53 from Wikidata, 438 legal entities from
+GLEIF; Wikidata timed out for DE, AT, PL, NL and GB). Google News throttled the run after about 300 companies, so only
+33 companies have news yet; analysis and scoring of all 984 took 16 s with the heuristic backend.
 
 **Scale** (measured with mocked registries): 1,002 companies pass registry load, dedupe, news, analysis and scoring
 in about 30 s with the heuristic backend. With real sources, expect about 5-10 min for Wikidata + Google News,

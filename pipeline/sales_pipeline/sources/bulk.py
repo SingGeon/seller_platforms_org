@@ -14,6 +14,7 @@ import logging
 import re
 from typing import Any
 
+import httpx
 from pydantic import BaseModel, Field
 
 from .base import get_json
@@ -95,12 +96,19 @@ class RegistryCompany(BaseModel):
         return self.model_dump(exclude_none=True, exclude={"name", "country", "domain"})
 
 
-def wikidata_query(country: str, limit: int, offset: int) -> str:
+# Only companies with at least this many Wikipedia articles: they are the best-known ones we want first, and
+# the filter keeps the sort small enough for Wikidata's 60 s limit in big countries (DE, GB, PL, NL).
+MIN_SITELINKS = 3
+PAGE_SIZES = (250, 100, 50, 25)  # a page that times out on Wikidata is retried smaller
+
+
+def wikidata_query(country: str, limit: int, offset: int, min_sitelinks: int = MIN_SITELINKS) -> str:
     classes = " ".join(f"wd:{c}" for c in COMPANY_CLASSES)
     return f"""SELECT ?item ?itemLabel ?website ?industryLabel ?employees ?lei ?exchange ?sitelinks WHERE {{
   {{ SELECT DISTINCT ?item ?sitelinks WHERE {{
       VALUES ?class {{ {classes} }}
       ?item wdt:P31 ?class ; wdt:P17 wd:{COUNTRY_QID[country]} ; wdt:P856 [] ; wikibase:sitelinks ?sitelinks .
+      FILTER(?sitelinks >= {min_sitelinks})
       FILTER NOT EXISTS {{ ?item wdt:P576 [] }}
     }} ORDER BY DESC(?sitelinks) LIMIT {limit} OFFSET {offset} }}
   ?item wdt:P856 ?website .
@@ -162,12 +170,21 @@ async def wikidata_companies(client, country: str, limit: int, page_size: int = 
         raise ValueError(f"no Wikidata country mapping for {country}")
     out: list[RegistryCompany] = []
     offset = start
+    sizes = [s for s in PAGE_SIZES if s <= page_size] or [page_size]
     while len(out) < limit:
-        size = min(page_size, limit - len(out))
-        data = await get_json(
-            client, WIKIDATA_SPARQL, params={"query": wikidata_query(country, size, offset), "format": "json"},
-            headers={**UA, "Accept": "application/sparql-results+json"}, timeout=90,
-        )
+        data = None
+        for cap in sizes:
+            size = min(cap, limit - len(out))
+            try:
+                data = await get_json(
+                    client, WIKIDATA_SPARQL, params={"query": wikidata_query(country, size, offset), "format": "json"},
+                    headers={**UA, "Accept": "application/sparql-results+json"}, timeout=90,
+                )
+                break
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code < 500 or cap == sizes[-1]:
+                    raise
+                log.info("wikidata %s page of %s timed out (%s), retrying smaller", country, size, exc.response.status_code)
         rows = (data.get("results") or {}).get("bindings", [])
         page = parse_wikidata_rows(rows, country)
         out += page

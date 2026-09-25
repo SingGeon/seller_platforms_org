@@ -2,6 +2,7 @@
 
     python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000
     python -m app.bootstrap --target 1500 --gleif-fill --enrich-top 30 --gdelt
+    python -m app.bootstrap --refresh-news        # only news for the companies already stored, then re-score
 
 1. Companies: Wikidata (official website, industry, employees, LEI), best-known first;
    GLEIF tops a country up with registered legal entities when --gleif-fill is set.
@@ -38,6 +39,7 @@ from .orchestrator import ENRICH_SOURCES, company_info, execute_run
 
 log = logging.getLogger(__name__)
 NEWS_FRESH_HOURS = 24
+DEFAULT_COUNTRIES = ["RO", "MD", "DE", "AT", "PL", "NL", "GB"]
 
 
 def utcnow() -> datetime:
@@ -225,6 +227,35 @@ async def bootstrap(
             await client.aclose()
 
 
+async def refresh_news(
+    sf: sessionmaker, *, countries: list[str] | None = None, gdelt: bool = False, analyze: bool = True,
+    concurrency: int = 2, say: Callable[[str], None] = print, client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """News for companies already in the database (no registry calls), e.g. after a news provider throttled a
+    bootstrap. Companies that got news in the last NEWS_FRESH_HOURS are skipped, so it can be re-run safely."""
+    started = time.monotonic()
+    query = {"country": {"$in": countries}} if countries else {}
+    ids = mongo.ids(mongo.COMPANIES, query)
+    todo = companies_needing_news(ids)
+    say(f"News for {len(todo)} of {len(ids)} companies (the others got news in the last {NEWS_FRESH_HOURS} h)")
+    own_client = client is None
+    client = client or httpx.AsyncClient(timeout=60, follow_redirects=True, headers={"User-Agent": "OrangeSignals/0.1 (B2B sales research)"})
+    try:
+        stats: dict[str, Any] = {"news": await fetch_news(sf, client, todo, gdelt=gdelt, concurrency=concurrency, say=say)}
+    finally:
+        if own_client:
+            await client.aclose()
+    if analyze and ids:
+        run_id = mongo.create_run(kind="enrichment", params={"stage": "news-refresh-analysis"}).id
+        say(f"Signal analysis and scoring for {len(ids)} companies")
+        await execute_run(sf, run_id, company_ids=ids, sources=(), explain=True)
+        stats["analysis_run"] = run_id
+    stats["totals"] = summary()
+    stats["duration_seconds"] = round(time.monotonic() - started, 1)
+    say(f"Done in {stats['duration_seconds']}s: {stats['totals']}")
+    return stats
+
+
 def summary() -> dict[str, int]:
     d = mongo.db()
     tiers = {r["_id"]: r["n"] for r in d[mongo.LEAD_SCORES].aggregate([{"$group": {"_id": "$tier", "n": {"$sum": 1}}}])}
@@ -238,14 +269,15 @@ def summary() -> dict[str, int]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--countries", default="RO,MD,DE,AT,PL,NL,GB", help="ISO-2 list; supported: " + ",".join(sorted(COUNTRY_QID)))
+    parser.add_argument("--countries", default=None, help="ISO-2 list (default RO,MD,DE,AT,PL,NL,GB; with --refresh-news: all stored); supported: " + ",".join(sorted(COUNTRY_QID)))
     parser.add_argument("--target", type=int, default=1000, help="number of companies to load (split evenly across countries)")
     parser.add_argument("--gleif-fill", action="store_true", help="top up countries with GLEIF legal entities when Wikidata has too few")
     parser.add_argument("--no-news", action="store_true")
     parser.add_argument("--gdelt", action="store_true", help="also query GDELT (1 request / 5 s: ~1.5 h per 1000 companies)")
     parser.add_argument("--no-analyze", action="store_true")
     parser.add_argument("--enrich-top", type=int, default=0, help="full enrichment for the N best leads")
-    parser.add_argument("--news-concurrency", type=int, default=6)
+    parser.add_argument("--news-concurrency", type=int, default=2, help="parallel news requests (Google News blocks above ~2)")
+    parser.add_argument("--refresh-news", action="store_true", help="skip the registries: fetch news for stored companies, then re-score")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
     from .db import SessionLocal
@@ -253,9 +285,15 @@ def main() -> None:
 
     with SessionLocal() as db:
         seed_config(db)  # services, questions and rules must exist before scoring
+    countries = [c.strip().upper() for c in args.countries.split(",") if c.strip()] if args.countries else None
+    if args.refresh_news:
+        asyncio.run(refresh_news(SessionLocal, countries=countries, gdelt=args.gdelt, analyze=not args.no_analyze,
+                                 concurrency=args.news_concurrency))
+        return
+    countries = countries or DEFAULT_COUNTRIES
     asyncio.run(
         bootstrap(
-            SessionLocal, countries=[c.strip().upper() for c in args.countries.split(",") if c.strip()], target=args.target,
+            SessionLocal, countries=countries, target=args.target,
             gleif_fill=args.gleif_fill, news=not args.no_news, gdelt=args.gdelt, analyze=not args.no_analyze,
             enrich_top_n=args.enrich_top, news_concurrency=args.news_concurrency,
         )

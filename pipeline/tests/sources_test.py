@@ -242,3 +242,46 @@ def test_normalize_industry_to_icp_vocabulary():
     assert normalize_industry("automotive industry") == "Manufacturing"
     assert normalize_industry("wine") == "Wine"
     assert normalize_industry(None) is None
+
+
+def test_network_errors_are_retried():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ConnectError("Temporary failure in name resolution", request=request)
+        return httpx.Response(200, json={"ok": True})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await polite_request(client, "GET", "https://example.org/x")
+
+    assert asyncio.run(go()).status_code == 200 and calls["n"] == 3
+
+
+def test_wikidata_pages_that_time_out_are_retried_smaller():
+    import re as _re
+
+    from sales_pipeline.sources.bulk import wikidata_companies
+
+    sizes = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        query = request.url.params["query"]
+        size = int(_re.search(r"LIMIT (\d+)", query).group(1))
+        sizes.append(size)
+        assert "FILTER(?sitelinks >= 3)" in query
+        if size > 50:
+            return httpx.Response(504)
+        rows = [{"item": {"value": f"http://www.wikidata.org/entity/Q{i}"}, "itemLabel": {"value": f"Co {i}"},
+                 "website": {"value": f"https://co{i}.example/"}} for i in range(size)]
+        return httpx.Response(200, json={"results": {"bindings": rows}})
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await wikidata_companies(client, "DE", 60)
+
+    companies = asyncio.run(go())
+    assert len(companies) == 60
+    assert 250 not in sizes and 60 in sizes and 50 in sizes  # 60 (=limit) -> 504 x retries, then 50 -> ok

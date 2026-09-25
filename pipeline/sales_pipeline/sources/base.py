@@ -120,7 +120,7 @@ class HostThrottle:
             "public.mtender.gov.md": 1.0,
             "query.wikidata.org": 1.0,
             "api.ted.europa.eu": 0.5,
-            "news.google.com": 0.3,  # bulk runs query it once per company
+            "news.google.com": 2.0,  # bulk runs query it once per company; faster answers 503 for hours
             "api.gleif.org": 1.0,  # 60 requests / minute
         }
 
@@ -149,12 +149,21 @@ async def polite_request(
     base_delay: float | None = None,
     **kwargs: Any,
 ) -> httpx.Response:
-    """Throttled request with exponential backoff on 429 / 5xx (honours Retry-After)."""
+    """Throttled request with exponential backoff on 429 / 5xx (honours Retry-After) and on network errors
+    (DNS hiccups, dropped connections, read timeouts)."""
     host = urlparse(url).netloc
     base_delay = RETRY_BASE_DELAY if base_delay is None else base_delay
     for attempt in range(retries + 1):
         await THROTTLE.wait(host)
-        resp = await client.request(method, url, **kwargs)
+        try:
+            resp = await client.request(method, url, **kwargs)
+        except httpx.TransportError as exc:
+            if attempt == retries:
+                raise
+            delay = min(base_delay * 2**attempt, 60.0) + (random.uniform(0, 1) if base_delay else 0)
+            log.info("%s %s -> %s, retrying in %.1fs", method, host, type(exc).__name__, delay)
+            await asyncio.sleep(delay)
+            continue
         if resp.status_code not in (429, 500, 502, 503, 504) or attempt == retries:
             return resp
         retry_after = resp.headers.get("retry-after")
