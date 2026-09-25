@@ -1,8 +1,9 @@
-import { ArrowLeft, Check, Eye, EyeOff, Info } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Info } from 'lucide-react'
 import { type FormEvent, type ReactNode, useId, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
 import { LogoMark, LoopVideo, Wordmark } from '../components/Brand'
+import SignalFeed from '../components/SignalFeed'
 import { btn } from '../components/ui'
 
 export function passwordStrength(pw: string) {
@@ -168,17 +169,14 @@ export default function Auth({ mode }: { mode: 'login' | 'signup' }) {
         <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, rgba(10,10,11,0.75) 0%, rgba(10,10,11,0.35) 45%, rgba(10,10,11,0.92) 100%)' }} />
         <div className="relative flex h-full flex-col justify-between p-12">
           <Wordmark />
-          <div className="max-w-[520px]">
-            <h2 className="text-[52px] leading-[1.03] tracking-[-0.03em]">
+          <div className="max-w-[560px]">
+            <h2 className="max-w-[520px] text-[52px] leading-[1.03] tracking-[-0.03em]">
               Fiecare companie lasă <span className="text-orange">semnale.</span>
             </h2>
-            <ul className="mt-8 space-y-3 text-[16px] text-white/80">
-              {['Lead-uri scorate de AI, cu dovada fiecărui punct', 'Joburi, licitații, știri și incidente cyber, la zi', 'Pipeline și echipă, într-un singur CRM'].map((t) => (
-                <li key={t} className="flex gap-3">
-                  <Check size={20} className="mt-0.5 shrink-0 text-orange" aria-hidden /> {t}
-                </li>
-              ))}
-            </ul>
+            <p className="mt-4 text-[18px] text-white/70">LeadRadar le aude primul și îți spune pe cine să suni azi.</p>
+            <div className="mt-10">
+              <SignalFeed />
+            </div>
           </div>
           <p className="text-[12px] text-white/45">© 2026 Orange Systems · Gigahack</p>
         </div>
