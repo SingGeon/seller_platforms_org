@@ -1,8 +1,8 @@
-import { Bell, Kanban, LayoutDashboard, LogOut, RadioTower, Search, SlidersHorizontal, Users } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
-import { dataError, getCompanies, getSeller, getSources, isLive, isNew, timeAgo } from '../data/api'
-import { logout } from '../data/client'
+import { Bell, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, Search, SlidersHorizontal, UserRound, Users } from 'lucide-react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router'
+import { useSession } from '../auth/session'
+import { dataError, getCompanies, getSources, isLive, isNew, timeAgo } from '../data/api'
 import { Avatar } from './ui'
 
 function Logo() {
@@ -68,28 +68,66 @@ function TopBar() {
             </span>
           )}
         </button>
-        {getSeller() ? (
-          <>
-            <span className="hidden text-right leading-tight md:block">
-              <span className="block text-[13px] font-bold">{getSeller()!.full_name}</span>
-              <span className="block text-[11px] text-faint">{getSeller()!.role === 'admin' ? 'Administrator' : 'Vânzător'}</span>
-            </span>
-            <Avatar name={getSeller()!.full_name} size={32} />
-            <button
-              type="button"
-              className="p-1 hover:text-orange"
-              aria-label="Ieșire din cont"
-              title="Ieșire"
-              onClick={() => void logout().finally(() => window.location.reload())}
-            >
-              <LogOut size={19} />
-            </button>
-          </>
-        ) : (
-          <Avatar name={null} size={32} />
-        )}
+        <UserMenu />
       </div>
     </header>
+  )
+}
+
+function UserMenu() {
+  const { seller, signOut } = useSession()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    document.addEventListener('keydown', close)
+    return () => {
+      document.removeEventListener('mousedown', close)
+      document.removeEventListener('keydown', close)
+    }
+  }, [open])
+  if (!seller) return <Avatar name={null} size={32} />
+  const out = async () => {
+    setOpen(false)
+    await signOut()
+    navigate('/', { replace: true })
+  }
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center gap-3 py-1 pl-1 hover:text-orange"
+      >
+        <span className="hidden text-right leading-tight md:block">
+          <span className="block text-[13px] font-bold">{seller.full_name}</span>
+          <span className="block text-[11px] text-faint">{seller.role === 'admin' ? 'Administrator' : 'Vânzător'}</span>
+        </span>
+        <Avatar name={seller.full_name} size={32} />
+        <ChevronDown size={15} aria-hidden />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full z-40 mt-2 w-60 border-2 border-ink bg-white text-ink shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+          <div className="border-b border-line px-4 py-3">
+            <p className="truncate font-bold">{seller.full_name}</p>
+            <p className="truncate text-[13px] text-muted">{seller.email}</p>
+          </div>
+          <Link role="menuitem" to="/account" onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3 font-bold hover:bg-canvas">
+            <UserRound size={17} aria-hidden /> Contul meu
+          </Link>
+          <button role="menuitem" type="button" onClick={() => void out()} className="flex w-full items-center gap-3 border-t border-line px-4 py-3 text-left font-bold hover:bg-canvas">
+            <LogOut size={17} aria-hidden /> Ieșire din cont
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -101,6 +139,7 @@ const NAV = [
 const NAV_SYSTEM = [
   { to: '/config', label: 'Configurare', icon: SlidersHorizontal },
   { to: '/runs', label: 'Surse și rulări', icon: RadioTower },
+  { to: '/account', label: 'Contul meu', icon: UserRound },
 ]
 
 function NavItem({ to, label, icon: Icon, end, badge }: { to: string; label: string; icon: typeof Users; end?: boolean; badge?: number }) {

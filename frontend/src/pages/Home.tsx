@@ -1,5 +1,6 @@
 import { ArrowRight } from 'lucide-react'
 import { Link } from 'react-router'
+import { useSession } from '../auth/session'
 import { getCompanies, getRecentSignals, getServices, getSources, isNew, timeAgo } from '../data/api'
 import type { ServiceId } from '../data/types'
 import { Panel, PanelTitle, SERVICE_COLOR, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, btn } from '../components/ui'
@@ -21,6 +22,8 @@ function StatTile({ label, value, note, to }: { label: string; value: number | s
 }
 
 export default function Home() {
+  const { seller } = useSession()
+  const firstName = seller?.full_name.split(' ')[0]
   const companies = getCompanies()
   const active = companies.filter((c) => c.stage !== 'descalificat')
   const hot = active.filter((c) => c.score >= 75)
@@ -38,7 +41,7 @@ export default function Home() {
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-[13px] font-bold text-muted first-letter:uppercase">{today}</p>
-          <h1 className="mt-1 text-[32px] leading-none">Bună ziua, Ana</h1>
+          <h1 className="mt-1 text-[32px] leading-none">Bună ziua{firstName ? `, ${firstName}` : ''}</h1>
           <p className="mt-2 text-muted">
             Ai <span className="font-bold text-ink">{hot.filter((c) => !c.owner).length} lead-uri fierbinți neasignate</span> de preluat azi.
           </p>

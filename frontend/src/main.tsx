@@ -1,21 +1,39 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, RouterProvider } from 'react-router'
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router'
+import { SessionProvider, useSession } from './auth/session'
 import Layout from './components/Layout'
-import { loadData, setSeller } from './data/api'
-import { AuthError, authStatus, getToken, me, setOnAuthLost, type Seller } from './data/client'
 import './index.css'
+import Account from './pages/Account'
+import Auth from './pages/Auth'
 import Company from './pages/Company'
 import Config from './pages/Config'
 import Home from './pages/Home'
+import Landing from './pages/Landing'
 import Leads from './pages/Leads'
-import Login from './pages/Login'
 import Pipeline from './pages/Pipeline'
 import Runs from './pages/Runs'
 
+function Splash({ text }: { text: string }) {
+  return <div className="flex h-full items-center justify-center bg-ink text-white/60">{text}</div>
+}
+
+/** Visitors see the public landing page on "/" and are sent to the login for any app page. */
+function AppGate() {
+  const { loading, seller, dataReady } = useSession()
+  const location = useLocation()
+  if (loading) return <Splash text="Se încarcă…" />
+  if (!seller) return location.pathname === '/' ? <Landing /> : <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
+  if (!dataReady) return <Splash text="Se încarcă lead-urile…" />
+  return <Layout />
+}
+
 const router = createBrowserRouter([
+  { path: '/login', element: <Auth mode="login" /> },
+  { path: '/signup', element: <Auth mode="signup" /> },
   {
-    element: <Layout />,
+    path: '/',
+    element: <AppGate />,
     children: [
       { index: true, element: <Home /> },
       { path: 'leads', element: <Leads /> },
@@ -23,58 +41,16 @@ const router = createBrowserRouter([
       { path: 'pipeline', element: <Pipeline /> },
       { path: 'config', element: <Config /> },
       { path: 'runs', element: <Runs /> },
+      { path: 'account', element: <Account /> },
     ],
   },
+  { path: '*', element: <Navigate to="/" replace /> },
 ])
-
-type Gate = { state: 'loading' } | { state: 'login'; firstRun: boolean } | { state: 'app' }
-
-/** Login first (seller accounts in PostgreSQL), then load the data. Without a reachable API the app shows demo data. */
-function App() {
-  const [gate, setGate] = useState<Gate>({ state: 'loading' })
-
-  const enter = async (seller: Seller | null) => {
-    setSeller(seller)
-    try {
-      await loadData()
-      setGate({ state: 'app' })
-    } catch (err) {
-      if (err instanceof AuthError) setGate({ state: 'login', firstRun: false })
-      else throw err
-    }
-  }
-
-  useEffect(() => {
-    setOnAuthLost(() => setGate({ state: 'login', firstRun: false }))
-    const start = async () => {
-      if (import.meta.env.VITE_USE_MOCK === 'true') return enter(null)
-      let status
-      try {
-        status = await authStatus()
-      } catch {
-        return enter(null) // API down: demo data
-      }
-      if (!status.auth_required) return enter(null)
-      if (!status.has_sellers) return setGate({ state: 'login', firstRun: true })
-      if (getToken()) {
-        try {
-          return enter(await me())
-        } catch {
-          // expired or revoked token
-        }
-      }
-      setGate({ state: 'login', firstRun: false })
-    }
-    void start()
-  }, [])
-
-  if (gate.state === 'loading') return <div className="flex h-full items-center justify-center text-muted">Se încarcă…</div>
-  if (gate.state === 'login') return <Login firstRun={gate.firstRun} onDone={(s) => void enter(s)} />
-  return <RouterProvider router={router} />
-}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <SessionProvider>
+      <RouterProvider router={router} />
+    </SessionProvider>
   </StrictMode>,
 )

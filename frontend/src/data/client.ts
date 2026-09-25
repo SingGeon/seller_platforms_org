@@ -9,6 +9,8 @@ export interface Seller {
   full_name: string
   role: 'seller' | 'admin'
   active: boolean
+  created_at?: string
+  last_login_at?: string | null
 }
 
 let token: string | null = (() => {
@@ -105,3 +107,18 @@ export const createSeller = (body: { email: string; full_name: string; password:
   postJson<Seller>('/sellers', body)
 
 export const listSellers = () => getJson<Seller[]>('/sellers')
+
+export const updateSeller = (id: number, body: { full_name?: string; password?: string; role?: 'seller' | 'admin'; active?: boolean }) =>
+  putJson<Seller>(`/sellers/${id}`, body)
+
+export interface ActivityEntry {
+  t: string
+  action: string
+  seller_id: number | null
+  seller: string | null
+  company_id: number | null
+  details: Record<string, unknown>
+}
+
+export const listActivity = (sellerId: number, limit = 30) =>
+  getJson<ActivityEntry[]>(`/activity?seller_id=${sellerId}&limit=${limit}`)
