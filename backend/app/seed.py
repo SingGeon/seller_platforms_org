@@ -2,8 +2,9 @@
 negative signals and disqualification rules (GIG-17), a starter company list,
 and optionally offline sample documents built from the Annex 1 examples.
 
-    python -m app.seed                 # config + companies
-    python -m app.seed --sample-docs   # also load Annex 1 sample documents (offline demo)
+    python -m app.seed                 # configuration only (services, questions, ICP, rules, scoring)
+    python -m app.seed --demo          # also the 8 demo companies and the Annex 1 sample documents (offline demo)
+    python -m app.seed --remove-demo   # delete the demo data again (real companies loaded later are kept)
 """
 from __future__ import annotations
 
@@ -213,16 +214,50 @@ def seed_sample_documents() -> int:
     return added
 
 
+def remove_demo(db: Session) -> dict[str, int]:
+    """Delete the demo data: Annex 1 sample documents, the signals quoting them, and the demo companies
+    that no registry has confirmed since (a demo company matched by Wikidata / GLEIF is real and stays)."""
+    from .models import LeadAssignment
+
+    d = mongo.db()
+    sample_company_ids = set(d[mongo.DOCUMENTS].distinct("company_id", {"meta.sample": True}))
+    stats = {
+        "sample_documents": d[mongo.DOCUMENTS].delete_many({"meta.sample": True}).deleted_count,
+        "sample_signals": d[mongo.SIGNALS].delete_many({"evidence.url": {"$regex": r"\.example(/|$)"}}).deleted_count,
+        "sample_events": d[mongo.EVENTS].delete_many({"url": {"$regex": r"\.example(/|$)"}}).deleted_count,
+        "demo_companies": 0,
+    }
+    demo = mongo.find(mongo.COMPANIES, {"domain": {"$in": [c["domain"] for c in COMPANIES]}, "origin": "manual"})
+    for c in demo:
+        if c.registry_profiles:
+            continue  # confirmed by a registry: a real company now
+        mongo.delete_company(c.id)
+        assignment = db.get(LeadAssignment, c.id)
+        if assignment is not None:
+            db.delete(assignment)
+        sample_company_ids.discard(c.id)
+        stats["demo_companies"] += 1
+    db.commit()
+    remaining = [cid for cid in sample_company_ids if mongo.get(mongo.COMPANIES, cid)]
+    if remaining:
+        recompute_scores(db, company_ids=remaining)
+    return stats
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--sample-docs", action="store_true", help="load Annex 1 sample documents for an offline demo")
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--demo", action="store_true", help="add the 8 demo companies and the Annex 1 sample documents")
+    parser.add_argument("--sample-docs", action="store_true", help="same as --demo (kept for older instructions)")
+    parser.add_argument("--remove-demo", action="store_true", help="delete the demo companies and sample documents")
     args = parser.parse_args()
     from .db import SessionLocal
 
     with SessionLocal() as db:
         seed_config(db)
-        seed_companies()
-        if args.sample_docs:
+        if args.remove_demo:
+            print(f"demo data removed: {remove_demo(db)}")
+        elif args.demo or args.sample_docs:
+            seed_companies()
             print(f"sample documents added: {seed_sample_documents()}")
         recompute_scores(db)
     print("seed complete")
