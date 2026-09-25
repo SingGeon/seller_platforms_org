@@ -14,7 +14,7 @@ Requires Node 22.22+.
 
 | Route | Page | Jira |
 |---|---|---|
-| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background and a live signal feed. There is no sign-up: sales-manager accounts are created by an admin, admin accounts directly in the database. Any app URL opened while logged out comes back here and returns to that URL after login | — |
+| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background and a live signal feed. There is no sign-up: sales-manager accounts are created by an admin, admin accounts directly in the database (`python -m app.admin create`). Any app URL opened while logged out comes back here and returns to that URL after login | — |
 | `/account` | Personal account — profile, password, my leads, my activity; for admins also **Sales-manager accounts** (create, deactivate, reset password; role is always `seller`) | — |
 | `/admin` | Admin only (`role = admin`): team monitoring — KPIs, activity per day, per-seller table (last login, actions, leads, in progress, won, last action) and the filterable activity log | — |
 | `/` (logged in) | Home — KPIs, fresh signals, top leads to contact | — |

@@ -81,6 +81,9 @@ export const friendlyError = (err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg === 'Wrong email or password') return 'Email sau parolă greșită.'
   if (msg.startsWith('Only an admin') || msg === 'Admin only') return 'Doar un administrator poate face această acțiune.'
+  if (msg.startsWith('Admin accounts are managed')) return 'Conturile de administrator se gestionează doar direct în baza de date.'
+  if (msg.startsWith('You cannot activate or deactivate your own')) return 'Nu îți poți dezactiva propriul cont.'
+  if (msg.startsWith('You can only change your own')) return 'Poți modifica doar numele și parola propriului cont.'
   if (msg.includes('already exists')) return 'Există deja un cont cu acest email.'
   if (msg.includes('abort')) return 'Serverul nu a răspuns la timp. Încearcă din nou.'
   return msg

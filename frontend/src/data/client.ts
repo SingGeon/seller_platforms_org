@@ -104,12 +104,14 @@ export async function logout(): Promise<void> {
 
 export const me = () => getJson<Seller>('/auth/me', 5000)
 
-export const createSeller = (body: { email: string; full_name: string; password: string; role?: 'seller' | 'admin' }) =>
+/** Creates a sales-manager account (admin only). Admin accounts are created in the database, never through the API. */
+export const createSeller = (body: { email: string; full_name: string; password: string; role: 'seller' }) =>
   postJson<Seller>('/sellers', body)
 
 export const listSellers = () => getJson<Seller[]>('/sellers')
 
-export const updateSeller = (id: number, body: { full_name?: string; password?: string; role?: 'seller' | 'admin'; active?: boolean }) =>
+/** Name and password for yourself; an admin can also set `active` on seller accounts. Roles never change through the API. */
+export const updateSeller = (id: number, body: { full_name?: string; password?: string; active?: boolean }) =>
   putJson<Seller>(`/sellers/${id}`, body)
 
 export interface ActivityEntry {
