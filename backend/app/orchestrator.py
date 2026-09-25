@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -19,6 +20,10 @@ from sales_pipeline import CompanyInfo, Document, QuestionSpec, run_signal_pipel
 from sales_pipeline.collectors import collect_jobs, collect_news, collect_website
 from sales_pipeline.llm import LLMBackend
 from sales_pipeline.schemas import PipelineResult, Usage
+from sales_pipeline.sources.base import SourceContext
+from sales_pipeline.sources.cyber import kev_documents, load_kev
+from sales_pipeline.sources.registry import gleif_profile, wikidata_profile
+from sales_pipeline.sources.sec import sec_annual_report_documents
 
 from .config import get_settings
 from .explain import generate_summary
@@ -28,7 +33,9 @@ from .scoring import signal_date_from_evidence
 from .scoring_service import recompute_scores
 
 log = logging.getLogger(__name__)
-ALL_SOURCES = ("news", "web", "jobs")
+ENRICH_SOURCES = ("news", "web", "jobs", "registry")
+ALL_SOURCES = ENRICH_SOURCES
+_KEV_CACHE: dict[str, Any] = {"day": None, "items": []}
 
 
 def utcnow() -> datetime:
@@ -72,7 +79,7 @@ def _log(sf: sessionmaker, run_id: int, message: str, **progress: Any) -> None:
         db.commit()
 
 
-async def collect_documents(company: CompanyInfo, sources: tuple[str, ...]) -> tuple[list[Document], dict[str, str]]:
+async def collect_documents(company: CompanyInfo, sources: tuple[str, ...], use_serpapi: bool = False) -> tuple[list[Document], dict[str, str]]:
     s = get_settings()
     jobs = {}
     if "news" in sources:
@@ -80,7 +87,8 @@ async def collect_documents(company: CompanyInfo, sources: tuple[str, ...]) -> t
     if "web" in sources:
         jobs["web"] = collect_website(company, max_pages=s.crawl_max_pages, delay_seconds=s.crawl_delay_seconds, use_playwright=s.use_playwright)
     if "jobs" in sources:
-        jobs["jobs"] = collect_jobs(company, serpapi_key=s.serpapi_key or None)
+        # SerpAPI's free tier is tiny: only the top-scored companies spend searches on it.
+        jobs["jobs"] = collect_jobs(company, serpapi_key=(s.serpapi_key or None) if use_serpapi else None)
     docs: list[Document] = []
     errors: dict[str, str] = {}
     for name, result in zip(jobs, await asyncio.gather(*jobs.values(), return_exceptions=True)):
@@ -176,15 +184,74 @@ def persist_result(db: Session, company_id: int, result: PipelineResult, run_id:
     return {"signals": new_signals, "events": new_events}
 
 
+async def _kev(client: httpx.AsyncClient) -> list[dict]:
+    today = utcnow().date()
+    if _KEV_CACHE["day"] != today:
+        _KEV_CACHE["items"] = await load_kev(client)
+        _KEV_CACHE["day"] = today
+    return _KEV_CACHE["items"]
+
+
+async def enrich_company_profile(sf: sessionmaker, company_id: int, new_docs: list[Document]) -> tuple[list[Document], dict[str, str]]:
+    """Registries fill missing firmographics (industry, country, size, domain) so discovered
+    companies can be ICP-scored; tech stack + CISA KEV and SEC 10-K add cyber / annual-report docs."""
+    s = get_settings()
+    errors: dict[str, str] = {}
+    extra: list[Document] = []
+    with sf() as db:
+        c = db.get(Company, company_id)
+        name, domain, country = c.name, c.domain, c.country
+    profiles: dict[str, dict] = {}
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True, headers={"User-Agent": "OrangeSignals/0.1 (B2B sales research)"}) as client:
+        for key, fn in (("wikidata", lambda: wikidata_profile(client, name, domain)), ("gleif", lambda: gleif_profile(client, name, country))):
+            try:
+                p = await fn()
+                if p:
+                    profiles[key] = p.model_dump(exclude_none=True)
+            except Exception as exc:  # noqa: BLE001
+                errors[key] = str(exc)[:200]
+        tech = sorted({t for d in new_docs for t in d.meta.get("tech_stack", [])})
+        if tech:
+            try:
+                extra += kev_documents(name, tech, await _kev(client))
+            except Exception as exc:  # noqa: BLE001
+                errors["cisa_kev"] = str(exc)[:200]
+        if s.sec_user_agent and (country == "US" or (profiles.get("wikidata") or {}).get("country") == "US"):
+            try:
+                ctx = SourceContext(client=client, sec_user_agent=s.sec_user_agent)
+                extra += await sec_annual_report_documents(ctx, name)
+            except Exception as exc:  # noqa: BLE001
+                errors["sec_10k"] = str(exc)[:200]
+    with sf() as db:
+        c = db.get(Company, company_id)
+        wd, gl = profiles.get("wikidata", {}), profiles.get("gleif", {})
+        c.industry = c.industry or wd.get("industry")
+        c.country = c.country or wd.get("country") or gl.get("country")
+        c.employee_count = c.employee_count or wd.get("employee_count")
+        if not c.domain and wd.get("domain") and db.scalar(select(Company.id).where(Company.domain == wd["domain"])) is None:
+            c.domain = wd["domain"]
+        if tech:
+            c.tech_stack = tech
+        c.registry_profiles = {**(c.registry_profiles or {}), **profiles}
+        c.enriched_at = utcnow()
+        db.commit()
+    return extra, errors
+
+
 async def process_company(
-    sf: sessionmaker, run_id: int, company_id: int, questions: list[QuestionSpec], sources: tuple[str, ...], llm: LLMBackend, cache
+    sf: sessionmaker, run_id: int, company_id: int, questions: list[QuestionSpec], sources: tuple[str, ...], llm: LLMBackend, cache,
+    use_serpapi: bool = False,
 ) -> dict[str, Any]:
     with sf() as db:
         company = db.get(Company, company_id)
         info = company_info(company)
     stats: dict[str, Any] = {"company": info.name, "new_documents": {}, "collect_errors": {}}
     if sources and not get_settings().offline_collect:
-        docs, errors = await collect_documents(info, sources)
+        docs, errors = await collect_documents(info, sources, use_serpapi=use_serpapi)
+        if "registry" in sources:
+            extra, reg_errors = await enrich_company_profile(sf, company_id, docs)
+            docs += extra
+            errors.update(reg_errors)
         stats["collect_errors"] = errors
         with sf() as db:
             stats["new_documents"] = store_documents(db, company_id, docs)
@@ -221,6 +288,10 @@ async def execute_run(
         if not service_ids:
             service_ids = list(db.scalars(select(Service.id).where(Service.active.is_(True))))
         questions = build_questions(db, service_ids)
+        best: dict[int, float] = {}
+        for lead in db.scalars(select(LeadScore).where(LeadScore.disqualified.is_(False))):
+            best[lead.company_id] = max(best.get(lead.company_id, 0.0), lead.final_score)
+        serpapi_ids = {cid for cid, _ in sorted(best.items(), key=lambda kv: -kv[1])[: get_settings().serpapi_top_n]}
         run.params = {**(run.params or {}), "company_ids": company_ids, "service_ids": service_ids, "sources": list(sources), "llm": llm.name}
         run.progress = {"stage": "collect+analyze", "companies_total": len(company_ids), "companies_done": 0}
         db.commit()
@@ -237,7 +308,7 @@ async def execute_run(
         nonlocal done
         async with sem:
             try:
-                return await process_company(sf, run_id, cid, questions, sources, llm, cache)
+                return await process_company(sf, run_id, cid, questions, sources, llm, cache, use_serpapi=cid in serpapi_ids)
             finally:
                 done += 1
                 _log(sf, run_id, f"Company {cid} processed ({done}/{len(company_ids)})", companies_done=done)

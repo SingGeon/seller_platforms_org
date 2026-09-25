@@ -52,6 +52,40 @@ cd ../pipeline && pytest -q     # pipeline tests (mocked HTTP + mocked Anthropic
 python calibration/run_calibration.py --provider anthropic   # signal-answer precision (needs a key)
 ```
 
+## Data sources: discovery and enrichment (GIG-14)
+
+The platform works in two modes. Limits, keys and fallbacks for every source are listed in
+[`docs/data-sources.md`](docs/data-sources.md), which is generated from `pipeline/sales_pipeline/sources/catalog.py`.
+
+- **Discovery (signal → company)** builds the lead universe automatically. The platform searches for the signal
+  (an IT tender, a ransomware victim, an RPA job posting, an 8-K cyber disclosure, a press release) and creates or
+  matches the company it names. Companies are resolved by web domain, then by normalised name ("GitLab Inc." =
+  "GITLAB INC (GTLB)" = "GitLab"). Headlines the parser can't read go to the small LLM for company extraction.
+  Sources: TED, MTender, UK Contracts Finder, World Bank, Arbeitnow, Adzuna, HN "Who is hiring", Remotive,
+  RemoteOK, Jobicy, Himalayas, The Muse, We Work Remotely, Google News topics (per country, `when:1h/1d`),
+  PR Newswire, GlobeNewswire, Bing News, NewsData.io, Currents, ransomware.live, HIBP, DataBreaches.net,
+  SEC 8-K Item 1.05 / 5.02 and SEC Form D.
+- **Enrichment (company → signals)** runs per company inside enrichment runs: company news (local-language Google
+  News, throttled GDELT, NewsAPI), website crawl and tech stack, ATS boards (Greenhouse, Lever, Ashby, Workable,
+  SmartRecruiters, Recruitee, Personio), SerpAPI Google Jobs (top N only), Wikidata and GLEIF firmographics
+  (Crunchbase replacement), CISA KEV matched against the detected tech stack, and SEC 10-K language for US companies.
+
+A **discovery run** (`POST /discovery/runs`) syncs the selected sources and analyses every company they touched,
+using the documents just found. It then fully enriches the `enrich_top_n` best new leads that pass the ICP and the
+rules. Each source keeps a cursor in `source_state`, so a sync only fetches what is new. Documents are deduplicated
+by content hash, so only new text reaches the LLM. With `SCHEDULER_ENABLED=true` the backend syncs every source
+on its catalogue interval (15 min for press releases, hourly for tenders, 6 h for job boards).
+
+**Target markets** ("change the country") are a config value: `PUT /scoring-config` with
+`discovery_countries: ["RO", "MD"]`. They drive TED buyer countries, Adzuna countries, Google News editions and
+job-location filters. **B2B only**: the global rule "Pure B2C business" disqualifies companies marked `business_model = b2c`.
+
+Check every source live from a machine with internet access (nothing is written):
+
+```bash
+cd pipeline && SEC_USER_AGENT="Your Name you@example.com" COUNTRIES=RO,MD python -m sales_pipeline.sources.smoke
+```
+
 ## Architecture
 
 ```mermaid
@@ -248,6 +282,8 @@ erDiagram
 | Scoring | `GET/PUT /scoring-config`, `POST /scores/recompute` |
 | Leads | `GET /leads?service=apa&tier=Hot,Warm&country=DE&industry=bank&min_score=&sort=score&include_outside_icp=` |
 | Companies | `GET/POST /companies`, `POST /companies/import` (CSV / Crunchbase export), `GET/PUT/DELETE /companies/{id}`, `GET /companies/{id}/events`, `GET /companies/{id}/documents`, `PUT /companies/{id}/linkedin`, `POST /companies/{id}/manual-signal`, `POST /companies/{id}/explain?service=` |
+| Sources | `GET /sources` (catalogue + last sync, status, errors, missing keys), `GET/PUT /sources/{name}` (enable, interval, reset cursor), `POST /sources/{name}/sync`, `GET /sources/not-used` |
+| Discovery | `POST /discovery/runs` (`{sources?, enrich_top_n?}`); leads carry `is_new`, `previous_score`, `origin`, `discovered_via`; `GET /leads?origin=ted&changed_since_hours=24` |
 | Runs | `POST /runs` (`{company_ids?, service_ids?, sources?, explain?}`), `GET /runs`, `GET /runs/{id}` (status, progress, log, per-source stats, tokens, cost) |
 | Outreach | `POST /companies/{id}/outreach?service=&channel=email\|linkedin\|followup&tone=formal\|consultative&language=EN\|RO\|DE` |
 | CRM | `GET /export/leads.csv`, `GET /export/leads.json`, `POST /crm/hubspot` (body: lead ids) |
@@ -258,6 +294,7 @@ LinkedIn is used **only** for manual validation fields entered by reps. Nothing 
 
 | Task | Status in code |
 |---|---|
+| GIG-14 Sources, keys, limits | Source catalogue with limits/fallback (`docs/data-sources.md`), 25 discovery + 8 enrichment sources, cursors, throttling (GDELT ≥ 5 s, SEC 10 req/s), 429 backoff, `/sources` status API, scheduler, live smoke script |
 | GIG-12 Repo + Docker Compose | Structure, Dockerfiles, `docker-compose.yml` (config validated; full `up` not yet run, see below), `.env.example` |
 | GIG-13 PostgreSQL schema | `backend/app/models.py`, Alembic `0001` (applied and round-tripped on Postgres 16), ERD above |
 | GIG-15 ICP | `/icp` CRUD, fit score 0–100 with partial matches, `min_fit` filter |
@@ -279,6 +316,6 @@ LinkedIn is used **only** for manual validation fields entered by reps. Nothing 
 
 ### Not yet verified in this environment
 
-- **Live collectors**: the build sandbox's network policy blocks GDELT, Google News, ATS boards and company sites, so collectors are covered by mocked-HTTP tests only.
+- **Live collectors and discovery sources**: the build sandbox's network policy blocks every external data host, so collectors and all 25 discovery sources are covered by mocked-HTTP tests built from each API's documented response format. Run `python -m sales_pipeline.sources.smoke` on a machine with internet access to confirm them live.
 - **Claude answers**: no API key was available. The Anthropic backend is tested through the real SDK with a mocked transport (request shape and parsing). The GIG-26 ≥80% precision target still has to be measured with `calibration/run_calibration.py --provider anthropic`. The offline keyword backend scores 58% accuracy / 100% yes-precision on that set.
 - **`docker compose up`**: Docker Hub rate-limited image pulls here. The compose file validates, and the same startup sequence (migrate, seed, serve) was run directly against Postgres 16.

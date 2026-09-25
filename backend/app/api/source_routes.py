@@ -1,0 +1,137 @@
+"""Data sources API (GIG-14): catalogue with limits, live sync status, manual syncs and discovery runs."""
+from __future__ import annotations
+
+import asyncio
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from sales_pipeline.sources.catalog import BY_NAME, NOT_IMPLEMENTED, SOURCES
+
+from ..discovery import get_state, run_discovery, source_keys
+from ..models import PipelineRun, SourceState
+from ..schemas import RunOut
+from .deps import get_db
+
+router = APIRouter(tags=["sources"])
+
+
+class SourceOut(BaseModel):
+    name: str
+    label: str
+    mode: str
+    category: str
+    refresh: str
+    interval_minutes: int
+    services: list[str]
+    coverage: str
+    limits: str
+    fallback: str
+    requires: list[str]
+    missing_keys: list[str]
+    enabled: bool
+    configured: bool
+    last_status: str = "never"
+    last_run_at: datetime | None = None
+    last_success_at: datetime | None = None
+    next_run_at: datetime | None = None
+    last_error: str | None = None
+    last_stats: dict = Field(default_factory=dict)
+    total_items: int = 0
+    total_new_companies: int = 0
+
+
+class SourceUpdate(BaseModel):
+    enabled: bool | None = None
+    interval_minutes: int | None = Field(None, ge=5, le=10080)
+    reset_cursor: bool = False
+
+
+class DiscoveryIn(BaseModel):
+    sources: list[str] | None = Field(None, description="Discovery sources to sync; default = all configured")
+    enrich_top_n: int | None = Field(None, ge=0, le=200, description="Fully enrich the N best new leads; default ENRICH_TOP_N")
+
+
+def _out(spec, state: SourceState | None, keys: dict[str, str]) -> SourceOut:
+    missing = spec.missing_keys(keys)
+    return SourceOut(
+        name=spec.name, label=spec.label, mode=spec.mode, category=spec.category, refresh=spec.refresh,
+        interval_minutes=(state.interval_minutes if state and state.interval_minutes else spec.interval_minutes),
+        services=spec.services, coverage=spec.coverage, limits=spec.limits, fallback=spec.fallback, requires=spec.requires,
+        missing_keys=missing, enabled=state.enabled if state else True, configured=not missing,
+        **({
+            "last_status": state.last_status, "last_run_at": state.last_run_at, "last_success_at": state.last_success_at,
+            "next_run_at": state.next_run_at, "last_error": state.last_error, "last_stats": state.last_stats or {},
+            "total_items": state.total_items or 0, "total_new_companies": state.total_new_companies or 0,
+        } if state else {}),
+    )
+
+
+@router.get("/sources", response_model=list[SourceOut])
+def list_sources(mode: str | None = None, db: Session = Depends(get_db)):
+    keys = source_keys()
+    states = {s.name: s for s in db.scalars(select(SourceState))}
+    return [_out(spec, states.get(spec.name), keys) for spec in SOURCES if not mode or spec.mode == mode]
+
+
+@router.get("/sources/not-used")
+def sources_not_used():
+    return [{"source": n, "reason": why} for n, why in NOT_IMPLEMENTED]
+
+
+@router.get("/sources/{name}", response_model=SourceOut)
+def get_source(name: str, db: Session = Depends(get_db)):
+    spec = BY_NAME.get(name) or _404(name)
+    return _out(spec, db.get(SourceState, name), source_keys())
+
+
+@router.put("/sources/{name}", response_model=SourceOut)
+def update_source(name: str, body: SourceUpdate, db: Session = Depends(get_db)):
+    spec = BY_NAME.get(name) or _404(name)
+    state = get_state(db, name)
+    if body.enabled is not None:
+        state.enabled = body.enabled
+    if body.interval_minutes is not None:
+        state.interval_minutes = body.interval_minutes
+        state.next_run_at = None
+    if body.reset_cursor:
+        state.cursor = {}
+    db.commit()
+    return _out(spec, state, source_keys())
+
+
+def _404(name: str):
+    raise HTTPException(404, f"Unknown source '{name}'")
+
+
+def _start(request: Request, db: Session, sources: list[str] | None, enrich_top_n: int | None) -> PipelineRun:
+    active = db.scalar(select(PipelineRun).where(PipelineRun.status.in_(["queued", "running"])).limit(1))
+    if active is not None:
+        raise HTTPException(409, f"Run {active.id} is still {active.status}")
+    for n in sources or []:
+        spec = BY_NAME.get(n) or _404(n)
+        if spec.sync is None:
+            raise HTTPException(422, f"'{n}' is an enrichment source; it runs inside enrichment runs (POST /runs)")
+    run = PipelineRun(status="queued", kind="discovery", params={"sources": sources, "enrich_top_n": enrich_top_n, "trigger": "api"})
+    db.add(run)
+    db.commit()
+    task = asyncio.create_task(
+        run_discovery(request.app.state.session_factory, run.id, sources=sources, enrich_top_n=enrich_top_n,
+                      llm=request.app.state.llm_override, client=request.app.state.http_override)
+    )
+    request.app.state.background_tasks.add(task)
+    task.add_done_callback(request.app.state.background_tasks.discard)
+    return run
+
+
+@router.post("/sources/{name}/sync", response_model=RunOut, status_code=202)
+async def sync_one(name: str, request: Request, db: Session = Depends(get_db)):
+    return _start(request, db, [name], 0)
+
+
+@router.post("/discovery/runs", response_model=RunOut, status_code=202)
+async def start_discovery(body: DiscoveryIn, request: Request, db: Session = Depends(get_db)):
+    return _start(request, db, body.sources, body.enrich_top_n)

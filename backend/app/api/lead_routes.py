@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, UploadFile
 from sqlalchemy import func, select
@@ -28,6 +28,7 @@ from .deps import get_db, get_or_404, resolve_service
 
 router = APIRouter()
 TIER_ORDER = {"Hot": 0, "Warm": 1, "Cold": 2, "Disqualified": 3}
+NEW_LEAD_HOURS = 24
 
 
 # ------------------------------------------------------------------ leads
@@ -41,7 +42,14 @@ def _lead_out(lead: LeadScore, company: Company, service: Service) -> LeadOut:
         disqualified=lead.disqualified, disqualification_reasons=lead.disqualification_reasons or [],
         outside_icp=bool((lead.breakdown or {}).get("outside_icp")), top_signal=top,
         recommendation=exp.get("recommendation", ""), summary=exp.get("summary", ""), computed_at=lead.computed_at,
+        is_new=_aware(company.created_at) >= datetime.now(timezone.utc) - timedelta(hours=NEW_LEAD_HOURS),
+        previous_score=lead.previous_score, score_changed_at=lead.score_changed_at,
+        origin=company.origin or "manual", discovered_via=(company.discovered_via or [])[-3:],
     )
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
 @router.get("/leads", response_model=list[LeadOut], tags=["leads"])
@@ -52,6 +60,8 @@ def list_leads(
     industry: str | None = None,
     min_score: float | None = None,
     include_outside_icp: bool = False,
+    origin: str | None = Query(None, description="manual | import | a discovery source name"),
+    changed_since_hours: int | None = Query(None, ge=1, description="only leads discovered or re-scored in the last N hours"),
     sort: str = Query("score", pattern="^(score|-score|tier|company|recent)$"),
     limit: int = Query(200, le=1000),
     db: Session = Depends(get_db),
@@ -67,7 +77,12 @@ def list_leads(
         stmt = stmt.where(func.lower(Company.industry).contains(industry.lower()))
     if min_score is not None:
         stmt = stmt.where(LeadScore.final_score >= min_score)
+    if origin:
+        stmt = stmt.where(Company.origin == origin)
     rows = [_lead_out(l, c, s) for l, c, s in db.execute(stmt)]
+    if changed_since_hours:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=changed_since_hours)
+        rows = [r for r in rows if r.is_new or (r.score_changed_at and _aware(r.score_changed_at) >= cutoff)]
     if not include_outside_icp:
         rows = [r for r in rows if not r.outside_icp or r.disqualified]
     if sort == "score":
@@ -145,7 +160,7 @@ async def import_companies(file: UploadFile, db: Session = Depends(get_db)):
             continue
         data = company.model_dump()
         data["country"] = data["country"].upper() if data["country"] else None
-        db.add(Company(**data))
+        db.add(Company(**data, origin="import"))
         created += 1
     db.commit()
     recompute_scores(db)

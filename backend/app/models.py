@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, event, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, JSONType
@@ -105,6 +105,16 @@ class Company(Base):
     status: Mapped[str] = mapped_column(String(30), default="active")  # active | insolvent | acquired
     # Manual LinkedIn validation (GIG-24): decision-makers, notes — entered by reps, never scraped.
     linkedin_validation: Mapped[dict] = mapped_column(JSONType, default=dict)
+    # Entity resolution across sources: "GitLab Inc." and "GitLab" share one normalised name.
+    normalized_name: Mapped[str] = mapped_column(String(300), default="", index=True)
+    aliases: Mapped[list] = mapped_column(JSONType, default=list)
+    business_model: Mapped[str] = mapped_column(String(10), default="unknown")  # b2b | b2c | mixed | unknown
+    # Where the company came from: "manual", "import" or a discovery source name, plus first signal.
+    origin: Mapped[str] = mapped_column(String(50), default="manual")
+    discovered_via: Mapped[list] = mapped_column(JSONType, default=list)  # [{source, signal, at}]
+    registry_profiles: Mapped[dict] = mapped_column(JSONType, default=dict)  # {wikidata: {...}, gleif: {...}}
+    tech_stack: Mapped[list] = mapped_column(JSONType, default=list)
+    enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -175,6 +185,9 @@ class LeadScore(Base):
     disqualification_reasons: Mapped[list] = mapped_column(JSONType, default=list)
     breakdown: Mapped[dict] = mapped_column(JSONType, default=dict)
     explanation: Mapped[dict] = mapped_column(JSONType, default=dict)  # {summary, top_signals, recommendation}
+    # Score movement for the dashboard arrows: last different score and when it changed.
+    previous_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    score_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -193,6 +206,8 @@ class ScoringConfig(Base):
         JSONType, default=lambda: [[30, 1.0], [90, 0.7], [180, 0.4], [None, 0.1]]
     )
     undated_recency: Mapped[float] = mapped_column(Float, default=0.5)
+    # Markets that discovery sources search (ISO-2); "change the country" = edit this list.
+    discovery_countries: Mapped[list] = mapped_column(JSONType, default=lambda: ["RO", "MD"])
 
 
 class PipelineRun(Base):
@@ -200,6 +215,7 @@ class PipelineRun(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     status: Mapped[str] = mapped_column(String(20), default="queued")  # queued | running | succeeded | failed
+    kind: Mapped[str] = mapped_column(String(20), default="enrichment")  # enrichment | discovery
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     params: Mapped[dict] = mapped_column(JSONType, default=dict)
@@ -210,6 +226,25 @@ class PipelineRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class SourceState(Base):
+    """Per-source sync state (GIG-14 refresh rules): cursor, schedule and last outcome."""
+
+    __tablename__ = "source_state"
+
+    name: Mapped[str] = mapped_column(String(50), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = catalogue default
+    cursor: Mapped[dict] = mapped_column(JSONType, default=dict)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_status: Mapped[str] = mapped_column(String(20), default="never")  # never | ok | error | skipped
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_stats: Mapped[dict] = mapped_column(JSONType, default=dict)  # fetched, items, new_companies, new_documents
+    total_items: Mapped[int] = mapped_column(Integer, default=0)
+    total_new_companies: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class LlmCache(Base):
     """Persistent LLM response cache keyed on (task, model, company, question, docs) (GIG-28)."""
 
@@ -218,3 +253,11 @@ class LlmCache(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[object] = mapped_column(JSONType)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+@event.listens_for(Company, "before_insert")
+@event.listens_for(Company, "before_update")
+def _set_normalized_name(mapper, connection, target: Company) -> None:  # noqa: ARG001
+    from sales_pipeline.sources.companies import normalize_company_name
+
+    target.normalized_name = normalize_company_name(target.name)

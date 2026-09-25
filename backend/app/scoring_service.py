@@ -80,6 +80,9 @@ def recompute_scores(db: Session, company_ids: list[int] | None = None, service_
             if row is None:
                 row = LeadScore(company_id=company.id, service_id=service.id)
                 db.add(row)
+            if row.final_score is not None and row.id is not None and abs((row.final_score or 0) - res.final_score) >= 0.5:
+                row.previous_score = row.final_score
+                row.score_changed_at = now
             previous_summary = (row.explanation or {}).get("summary", "")
             previous_top = (row.explanation or {}).get("top_signals", [])
             row.icp_score = res.icp_score

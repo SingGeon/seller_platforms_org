@@ -9,7 +9,7 @@ from typing import Any
 
 RULE_FIELDS = {
     "name", "domain", "industry", "employee_count", "revenue_musd", "country", "market",
-    "is_existing_client", "is_competitor", "status",
+    "is_existing_client", "is_competitor", "status", "business_model", "origin",
 }
 OPERATORS = {"eq", "ne", "lt", "lte", "gt", "gte", "in", "not_in", "is_true", "is_false", "contains"}
 

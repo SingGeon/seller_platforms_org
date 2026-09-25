@@ -186,6 +186,59 @@ async def fetch_personio(client: httpx.AsyncClient, company: CompanyInfo, slug: 
     return docs
 
 
+async def fetch_ashby(client: httpx.AsyncClient, company: CompanyInfo, slug: str) -> list[Document]:
+    resp = await client.get(f"https://api.ashbyhq.com/posting-api/job-board/{slug}", params={"includeCompensation": "false"})
+    if resp.status_code != 200:
+        return []
+    docs = []
+    for job in resp.json().get("jobs", []):
+        if job.get("isListed") is False:
+            continue
+        published = job.get("publishedAt")
+        docs.append(
+            _job_doc(
+                company, title=job.get("title", ""), url=job.get("jobUrl", ""), description=job.get("descriptionPlain", ""),
+                location=job.get("location", ""), posted_at=datetime.fromisoformat(published.replace("Z", "+00:00")) if published else None, board="ashby",
+            )
+        )
+    return docs
+
+
+async def fetch_smartrecruiters(client: httpx.AsyncClient, company: CompanyInfo, slug: str) -> list[Document]:
+    resp = await client.get(f"https://api.smartrecruiters.com/v1/companies/{slug}/postings", params={"limit": "100"})
+    if resp.status_code != 200:
+        return []
+    docs = []
+    for job in resp.json().get("content", []):
+        loc = job.get("location") or {}
+        released = job.get("releasedDate")
+        docs.append(
+            _job_doc(
+                company, title=job.get("name", ""), url=f"https://jobs.smartrecruiters.com/{slug}/{job.get('id')}",
+                description=((job.get("function") or {}).get("label") or ""), location=", ".join(filter(None, [loc.get("city"), loc.get("country")])),
+                posted_at=datetime.fromisoformat(released.replace("Z", "+00:00")) if released else None, board="smartrecruiters",
+            )
+        )
+    return docs
+
+
+async def fetch_recruitee(client: httpx.AsyncClient, company: CompanyInfo, slug: str) -> list[Document]:
+    resp = await client.get(f"https://{slug}.recruitee.com/api/offers/")
+    if resp.status_code != 200:
+        return []
+    docs = []
+    for job in resp.json().get("offers", []):
+        published = job.get("published_at") or job.get("created_at")
+        docs.append(
+            _job_doc(
+                company, title=job.get("title", ""), url=job.get("careers_url", ""), description=BeautifulSoup(job.get("description") or "", "html.parser").get_text(" "),
+                location=job.get("location", ""), posted_at=datetime.fromisoformat(published.replace(" UTC", "+00:00").replace("Z", "+00:00")) if published else None,
+                board="recruitee",
+            )
+        )
+    return docs
+
+
 async def fetch_careers_page(client: httpx.AsyncClient, company: CompanyInfo) -> list[Document]:
     """Parse job-looking links from the company's own careers page."""
     url = company.careers_url or (f"https://{company.domain}/careers" if company.domain else None)
@@ -232,7 +285,10 @@ async def collect_jobs(
         jobs = []
         if serpapi_key:
             jobs.append(("serpapi", fetch_serpapi_jobs(client, company, serpapi_key)))
-        boards = {"greenhouse": fetch_greenhouse, "lever": fetch_lever, "workable": fetch_workable, "personio": fetch_personio}
+        boards = {
+            "greenhouse": fetch_greenhouse, "lever": fetch_lever, "workable": fetch_workable, "personio": fetch_personio,
+            "ashby": fetch_ashby, "smartrecruiters": fetch_smartrecruiters, "recruitee": fetch_recruitee,
+        }
         for board, slug in company.ats.items():
             if board in boards:
                 jobs.append((board, boards[board](client, company, slug)))
@@ -240,6 +296,7 @@ async def collect_jobs(
             for slug in guess_ats_slugs(company):
                 jobs.append((f"greenhouse:{slug}", fetch_greenhouse(client, company, slug)))
                 jobs.append((f"lever:{slug}", fetch_lever(client, company, slug)))
+                jobs.append((f"ashby:{slug}", fetch_ashby(client, company, slug)))
         jobs.append(("careers_page", fetch_careers_page(client, company)))
         docs: list[Document] = []
         for name, job in jobs:

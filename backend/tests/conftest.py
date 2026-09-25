@@ -18,6 +18,11 @@ from app.seed import seed_companies, seed_config, seed_sample_documents
 from sales_pipeline import HeuristicBackend
 
 
+@pytest.fixture(autouse=True)
+def fast_retries(monkeypatch):
+    monkeypatch.setattr("sales_pipeline.sources.base.RETRY_BASE_DELAY", 0.0)
+
+
 @pytest.fixture()
 def session_factory():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)

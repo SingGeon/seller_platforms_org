@@ -29,6 +29,32 @@ from .prompts import (
     signal_user_prompt,
 )
 from .relevance import Chunk, question_terms, score_text
+
+EXTRACT_SYSTEM = """For each numbered news headline or snippet, name the single company or public organisation it is \
+primarily about (the one that announced, suffered or did the thing), as it would appear in a company register. \
+Skip items about people only, countries, markets or several companies equally. Only include a domain or ISO-2 \
+country code when the text states it; otherwise use an empty string."""
+EXTRACT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "companies": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "index": {"type": "integer"},
+                    "company": {"type": "string"},
+                    "domain": {"type": "string"},
+                    "country": {"type": "string"},
+                },
+                "required": ["index", "company", "domain", "country"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["companies"],
+    "additionalProperties": False,
+}
 from .schemas import Answer, CompanyInfo, DetectedEvent, Evidence, QuestionSpec, Usage
 
 log = logging.getLogger(__name__)
@@ -73,6 +99,7 @@ class LLMBackend(Protocol):
     async def classify_events(self, company: CompanyInfo, chunks: list[Chunk]) -> tuple[list[DetectedEvent], Usage]: ...
     async def explain_lead(self, payload: dict[str, Any]) -> tuple[str, Usage]: ...
     async def write_outreach(self, payload: dict[str, Any]) -> tuple[dict[str, Any], Usage]: ...
+    async def extract_companies(self, texts: list[str]) -> tuple[list[dict[str, Any]], Usage]: ...
 
 
 def _map_evidence(raw: list[dict[str, str]], ids: dict[str, Chunk]) -> list[Evidence]:
@@ -232,6 +259,16 @@ class AnthropicBackend:
         return data, usage
 
 
+    async def extract_companies(self, texts):
+        """Name the organisation each headline is about (discovery items the regex could not parse)."""
+        numbered = "\n".join(f"[{i}] {t}" for i, t in enumerate(texts))
+        data, usage = await self._json_call(
+            model=self.small_model, system=EXTRACT_SYSTEM, user=numbered, schema=EXTRACT_SCHEMA, max_tokens=4000
+        )
+        out = [e for e in data.get("companies", []) if isinstance(e.get("index"), int) and 0 <= e["index"] < len(texts) and e.get("company")]
+        return out, usage
+
+
 # --------------------------------------------------------------------------- Offline
 
 
@@ -344,6 +381,13 @@ class HeuristicBackend:
         )
         subject = f"{service} for {company}" if channel == "email" else f"Following up: {service} at {company}"
         return {"subject": subject, "body": body, "signals_used": [sig.get("question", "")]}, Usage()
+
+
+async def _no_extraction(self, texts):
+    return [], Usage()
+
+
+HeuristicBackend.extract_companies = _no_extraction  # headlines are already parsed by regex offline
 
 
 def make_backend(provider: str | None = None, **kwargs: Any) -> LLMBackend:

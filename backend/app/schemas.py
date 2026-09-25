@@ -86,6 +86,7 @@ class ScoringConfigIn(BaseModel):
     weight_values: dict[Weight, float] = Field(default_factory=lambda: {"High": 3, "Medium": 2, "Low": 1})
     recency_buckets: list[tuple[int | None, float]] = Field(default_factory=lambda: [(30, 1.0), (90, 0.7), (180, 0.4), (None, 0.1)])
     undated_recency: float = Field(0.5, ge=0, le=1)
+    discovery_countries: list[str] = Field(default_factory=lambda: ["RO", "MD"], description="ISO-2 markets searched by discovery sources")
 
 
 class ScoringConfigOut(ORM, ScoringConfigIn):
@@ -111,11 +112,18 @@ class CompanyIn(BaseModel):
     is_existing_client: bool = False
     is_competitor: bool = False
     status: str = "active"
+    business_model: Literal["b2b", "b2c", "mixed", "unknown"] = "unknown"
 
 
 class CompanyOut(ORM, CompanyIn):
     id: int
     linkedin_validation: dict = Field(default_factory=dict)
+    origin: str = "manual"
+    discovered_via: list[dict] = Field(default_factory=list)
+    aliases: list[str] = Field(default_factory=list)
+    registry_profiles: dict = Field(default_factory=dict)
+    tech_stack: list[str] = Field(default_factory=list)
+    enriched_at: datetime | None = None
     created_at: datetime
 
 
@@ -199,6 +207,12 @@ class LeadOut(BaseModel):
     recommendation: str
     summary: str
     computed_at: datetime
+    # Freshness for the dashboard (GIG-14 §10): "new" badge, score arrow, where it came from.
+    is_new: bool = False
+    previous_score: float | None = None
+    score_changed_at: datetime | None = None
+    origin: str = "manual"
+    discovered_via: list[dict] = Field(default_factory=list)
 
 
 class LeadDetail(ORM):
@@ -236,6 +250,7 @@ class RunIn(BaseModel):
 
 class RunOut(ORM):
     id: int
+    kind: str = "enrichment"
     status: str
     started_at: datetime | None
     finished_at: datetime | None

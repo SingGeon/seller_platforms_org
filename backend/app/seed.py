@@ -33,7 +33,8 @@ SERVICES = [
         "event_weights": {"leadership_change": "Medium", "tech_stack": "Low", "corporate_event:positive": "Low", "corporate_event:negative": "Medium"},
         "icp": {
             "markets": ["EU", "UK&I", "North America"],
-            "industries": ["Logistics", "Transportation", "Aviation", "Banking", "Insurance", "Manufacturing", "Retail", "Telecommunications", "Energy"],
+            "industries": ["Logistics", "Transportation", "Aviation", "Banking", "Insurance", "Manufacturing", "Retail", "Telecommunications", "Energy", "Public Sector"],
+            "countries": ["MD"],
             "employee_min": 1000,
             "employee_max": 1_000_000,
             "min_fit": 40,
@@ -42,7 +43,7 @@ SERVICES = [
             {
                 "text": "Does the company mention process optimization, cost reduction, operational efficiency, or automation initiatives?",
                 "weight": "High", "source_hint": "any", "lookback_days": 365,
-                "keywords": ["process optimization", "cost reduction", "efficiency", "automation", "digitalization", "process consolidation", "savings"],
+                "keywords": ["process optimization", "cost reduction", "efficiency", "automation", "robotic process automation", "digitalization", "process consolidation", "savings"],
             },
             {
                 "text": "Is the company hiring RPA developers, business analysts, automation engineers, AI specialists, or process excellence roles?",
@@ -52,7 +53,7 @@ SERVICES = [
             {
                 "text": "Is the company running digital transformation, AI, Agentic AI, RPA or process mining projects?",
                 "weight": "Medium", "source_hint": "any", "lookback_days": 365,
-                "keywords": ["digital transformation", "agentic ai", "artificial intelligence", "ai use cases", "rpa", "process mining", "generative ai", "strategy 2030"],
+                "keywords": ["digital transformation", "agentic ai", "artificial intelligence", "ai use cases", "rpa", "robotic process automation", "process mining", "generative ai", "strategy 2030"],
             },
             {
                 "text": "Has the company appointed a new CIO, COO, CDO, Head of Digital Transformation, Head of Automation or Process Excellence leader?",
@@ -93,6 +94,7 @@ SERVICES = [
         "icp": {
             "markets": ["EU", "UK&I"],
             "industries": ["Banking", "Financial Services", "Insurance", "Energy", "Healthcare", "Logistics", "Manufacturing", "Public Sector", "Telecommunications", "Aviation", "Retail"],
+            "countries": ["MD"],
             "employee_min": 250,
             "employee_max": 1_000_000,
             "min_fit": 40,
@@ -137,6 +139,7 @@ GLOBAL_RULES = [
     {"name": "Direct competitor", "rule_type": "field_rule", "field": "is_competitor", "operator": "is_true"},
     {"name": "Company is insolvent", "rule_type": "field_rule", "field": "status", "operator": "eq", "value": "insolvent"},
     {"name": "Too small (< 50 employees)", "rule_type": "field_rule", "field": "employee_count", "operator": "lt", "value": 50},
+    {"name": "Pure B2C business (only B2B)", "rule_type": "field_rule", "field": "business_model", "operator": "eq", "value": "b2c"},
     {"name": "Sanctioned country", "rule_type": "field_rule", "field": "country", "operator": "in", "value": ["RU", "BY", "IR", "KP", "SY", "CU"]},
     {
         "name": "Insolvency / bankruptcy reported",

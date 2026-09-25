@@ -226,6 +226,7 @@ def update_scoring_config(body: ScoringConfigIn, db: Session = Depends(get_db)):
     cfg = get_scoring_config(db)
     data = body.model_dump()
     data["recency_buckets"] = [list(b) for b in data["recency_buckets"]]
+    data["discovery_countries"] = [c.strip().upper() for c in data["discovery_countries"] if len(c.strip()) == 2]
     for k, v in data.items():
         setattr(cfg, k, v)
     db.commit()

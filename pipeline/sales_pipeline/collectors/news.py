@@ -12,6 +12,14 @@ import httpx
 
 from ..documents import Document, clean_text, dedupe
 from ..schemas import CompanyInfo
+from ..sources.base import polite_request
+
+# (hl, gl, ceid) per market; kept here to avoid importing the discovery feeds module.
+GOOGLE_EDITIONS = {
+    "RO": ("ro", "RO", "RO:ro"), "MD": ("ro", "MD", "MD:ro"), "DE": ("de", "DE", "DE:de"), "AT": ("de", "AT", "AT:de"),
+    "FR": ("fr", "FR", "FR:fr"), "NL": ("nl", "NL", "NL:nl"), "PL": ("pl", "PL", "PL:pl"), "IT": ("it", "IT", "IT:it"),
+    "ES": ("es", "ES", "ES:es"), "GB": ("en-GB", "GB", "GB:en"), "US": ("en-US", "US", "US:en"),
+}
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +38,6 @@ DEFAULT_KEYWORDS = [
 
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
-GOOGLE_NEWS_RSS = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
 
 def _gdelt_date(value: str | None) -> datetime | None:
@@ -61,7 +68,8 @@ async def fetch_gdelt(client: httpx.AsyncClient, company: CompanyInfo, keywords:
         "timespan": "6months",
         "sort": "datedesc",
     }
-    resp = await client.get(GDELT_URL, params=params)
+    # GDELT enforces ~1 request / 5 s and answers 429 otherwise: shared throttle + backoff.
+    resp = await polite_request(client, "GET", GDELT_URL, params=params, retries=2)
     resp.raise_for_status()
     try:
         articles = resp.json().get("articles", [])
@@ -115,7 +123,9 @@ async def fetch_newsapi(client: httpx.AsyncClient, company: CompanyInfo, keyword
 
 async def fetch_google_news(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str]) -> list[Document]:
     query = f'"{company.name}" ' + " OR ".join(keywords[:6])
-    resp = await client.get(GOOGLE_NEWS_RSS.format(q=quote_plus(query)))
+    # Local-language edition for the company's market (gl/hl), e.g. RO/MD news in Romanian.
+    hl, gl, ceid = GOOGLE_EDITIONS.get(company.country or "US", GOOGLE_EDITIONS["US"])
+    resp = await client.get(f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={hl}&gl={gl}&ceid={ceid}")
     resp.raise_for_status()
     feed = feedparser.parse(resp.text)
     docs = []
