@@ -103,12 +103,13 @@ export default function Admin() {
   if (error) return <p className="bg-danger-bg px-4 py-3 font-bold text-danger">Nu am putut încărca activitatea: {error}</p>
   if (!team) return <p className="text-muted">Se încarcă activitatea echipei…</p>
 
-  const sellers = team.filter((s) => s.role === 'seller')
+  const sellers = team.filter((s) => s.role !== 'admin')
   const activeSellers = sellers.filter((s) => s.active)
   const workedIds = new Set(inPeriod.filter((e) => e.category !== 'acces').map((e) => e.sellerId))
   const idle = activeSellers.filter((s) => !workedIds.has(s.id))
   const leadActions = inPeriod.filter((e) => e.category === 'leaduri').length
   const won = companies.filter((c) => c.stage === 'castigat' && c.owner).length
+  const alerts = inPeriod.filter((e) => e.alert)
 
   const rows = sellers
     .map((s) => {
@@ -172,6 +173,26 @@ export default function Admin() {
         <Tile label="Acțiuni pe lead-uri" value={leadActions} note={PERIODS.find((p) => p.id === period)!.label.toLowerCase()} />
         <Tile label="Lead-uri câștigate" value={won} note="cu responsabil asignat, total" />
       </div>
+
+      {alerts.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center gap-3 border-l-4 border-danger bg-danger-bg px-5 py-3" role="status">
+          <TriangleAlert size={18} className="text-danger" aria-hidden />
+          <p className="font-bold text-danger">
+            {alerts.length} {alerts.length === 1 ? 'autentificare eșuată' : 'autentificări eșuate'} în perioada aleasă
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setWho('')
+              setCat('acces')
+              feedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }}
+            className="ml-auto text-[14px] font-bold underline underline-offset-4"
+          >
+            Vezi în jurnal
+          </button>
+        </div>
+      )}
 
       <div className="mb-6">
         <DailyChart events={events} />
@@ -296,7 +317,13 @@ export default function Admin() {
                       <span className="num w-12 shrink-0 text-[13px] text-muted">{hhmm(e.t)}</span>
                       <Avatar name={e.seller} size={28} />
                       <p className="min-w-0 flex-1 text-[14px]">
-                        <span className="font-bold">{e.seller ?? 'Sistem'}</span> <span className="text-ink-2">{e.label.charAt(0).toLowerCase() + e.label.slice(1)}</span>
+                        {e.seller ? (
+                          <>
+                            <span className="font-bold">{e.seller}</span> <span className="text-ink-2">{e.label.charAt(0).toLowerCase() + e.label.slice(1)}</span>
+                          </>
+                        ) : (
+                          <span className={e.alert ? 'font-bold text-danger' : 'text-ink-2'}>{e.label}</span>
+                        )}
                         {e.companyId && (
                           <>
                             {' · '}
@@ -306,7 +333,9 @@ export default function Admin() {
                           </>
                         )}
                       </p>
-                      <span className="shrink-0 bg-band px-2 py-0.5 text-[11px] font-bold">{CATEGORIES.find((c) => c.id === e.category)?.label}</span>
+                      <span className={`shrink-0 px-2 py-0.5 text-[11px] font-bold ${e.alert ? 'bg-danger-bg text-danger' : 'bg-band'}`}>
+                        {e.alert ? 'Atenție' : CATEGORIES.find((c) => c.id === e.category)?.label}
+                      </span>
                     </div>
                   </li>
                 )

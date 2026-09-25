@@ -265,7 +265,7 @@ function AccountsTab() {
     void patch(s, { password: pw }, `Parola lui ${s.full_name} a fost resetată.`)
   }
 
-  const sellers = (team ?? []).filter((s) => s.role === 'seller')
+  const sellers = (team ?? []).filter((s) => s.role !== 'admin')
 
   return (
     <div className="space-y-6">

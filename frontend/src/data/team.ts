@@ -21,6 +21,29 @@ export interface TeamEvent {
   label: string
   category: ActivityCategory
   companyId: string | null
+  /** A failed login or another event an admin should notice. */
+  alert: boolean
+}
+
+const STAGE_RO: Record<string, string> = {
+  nou: 'Nou', calificat: 'Calificat', contactat: 'Contactat', negociere: 'În negociere', castigat: 'Câștigat', descalificat: 'Descalificat',
+}
+const CHANGE_RO: Record<string, string> = { name: 'nume', password: 'parolă resetată', activated: 'reactivat', deactivated: 'dezactivat' }
+const str = (v: unknown) => (typeof v === 'string' && v ? v : null)
+
+/** Explicit events with details, when the backend records them; the generic audit paths below cover the rest. */
+const DETAILED: Record<string, (d: Record<string, unknown>) => { label: string; category: ActivityCategory; alert?: boolean }> = {
+  lead_stage: (d) => ({ label: `A mutat lead-ul din ${STAGE_RO[str(d.stage_from) ?? ''] ?? '—'} în ${STAGE_RO[str(d.stage_to) ?? ''] ?? '—'}`, category: 'leaduri' }),
+  lead_assign: (d) => ({ label: str(d.owner_to) ? `A asignat lead-ul lui ${d.owner_to}` : 'A scos responsabilul lead-ului', category: 'leaduri' }),
+  lead_note: (d) => ({ label: str(d.excerpt) ? `A adăugat o notă: „${d.excerpt}”` : 'A adăugat o notă', category: 'leaduri' }),
+  seller_create: (d) => ({ label: `A creat contul lui ${str(d.target) ?? 'un sales manager'}`, category: 'conturi' }),
+  seller_update: (d) => ({
+    label: `A modificat contul lui ${str(d.target) ?? 'un sales manager'}${Array.isArray(d.changes) && d.changes.length ? ` (${d.changes.map((c) => CHANGE_RO[String(c)] ?? String(c)).join(', ')})` : ''}`,
+    category: 'conturi',
+  }),
+  seller_delete: (d) => ({ label: `A șters contul lui ${str(d.target) ?? 'un sales manager'}`, category: 'conturi' }),
+  login_failed: (d) => ({ label: `Autentificare eșuată${str(d.email) ? ` pentru ${d.email}` : ''}`, category: 'acces', alert: true }),
+  integrity_repair: () => ({ label: 'A reparat legăturile dintre baze de date', category: 'altele' }),
 }
 
 /** Backend audit actions ("PUT /companies/{company_id}/assignment", "login", …) as words a manager reads. */
@@ -44,9 +67,14 @@ const RULES: [RegExp, string, ActivityCategory][] = [
   [/\/sellers/, 'A modificat un cont', 'conturi'],
 ]
 
-export function describe(action: string): { label: string; category: ActivityCategory } {
-  for (const [re, label, category] of RULES) if (re.test(action)) return { label, category }
-  return { label: action, category: 'altele' }
+export function describe(action: string, details: Record<string, unknown> = {}): { label: string; category: ActivityCategory; alert: boolean } {
+  const detailed = DETAILED[action]
+  if (detailed) {
+    const r = detailed(details)
+    return { ...r, alert: r.alert ?? false }
+  }
+  for (const [re, label, category] of RULES) if (re.test(action)) return { label, category, alert: false }
+  return { label: action, category: 'altele', alert: false }
 }
 
 const fromApi = (e: ActivityEntry): TeamEvent => ({
@@ -54,7 +82,7 @@ const fromApi = (e: ActivityEntry): TeamEvent => ({
   sellerId: e.seller_id,
   seller: e.seller,
   action: e.action,
-  ...describe(e.action),
+  ...describe(e.action, e.details ?? {}),
   companyId: e.company_id != null ? String(e.company_id) : null,
 })
 
@@ -97,6 +125,7 @@ function demoActivity(): TeamEvent[] {
       if (rnd() < 0.5) add(start - 8, s, 'logout')
     }
   }
+  out.push({ t: ago(3.2), sellerId: null, seller: null, action: 'login_failed', ...describe('login_failed', { email: 'elena.munteanu@orange.md' }), companyId: null })
   const admin = DEMO_TEAM.find((m) => m.role === 'admin')!
   add(26, admin, 'POST /discovery/runs')
   add(50, admin, 'PUT /scoring-config')

@@ -2,6 +2,7 @@ import { ChevronRight, Copy, ExternalLink, Globe, Send, Sparkles, UserSearch } f
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { STAGES, getCompany, getQuestions, getSeller, getServices, isLive, isNew, patchCompany, timeAgo } from '../data/api'
+import { describe } from '../data/team'
 import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
 import { listSellers, type Seller } from '../data/client'
 import type { Company as CompanyT, Signal, Stage } from '../data/types'
@@ -69,20 +70,11 @@ function SignalCard({ s }: { s: Signal }) {
   )
 }
 
-const ACTION_RO: Record<string, string> = {
-  'PUT /companies/{company_id}/assignment': 'Stadiu sau responsabil schimbat',
-  'POST /companies/{company_id}/notes': 'Notă adăugată',
-  'POST /companies/{company_id}/manual-signal': 'Semnal validat manual',
-  'POST /companies/{company_id}/outreach': 'Mesaj de contact generat',
-  'PUT /companies/{company_id}': 'Date companie modificate',
-  'PUT /companies/{company_id}/linkedin': 'Validare LinkedIn',
-  'POST /companies/{company_id}/explain': 'Explicație AI regenerată',
-}
 
 function Timeline({ c, activity }: { c: CompanyT; activity: Activity[] }) {
   const events = [
     ...c.signals.map((s) => ({ date: s.date, title: s.title, meta: s.source, negative: s.points < 0 })),
-    ...activity.map((a) => ({ date: a.t, title: ACTION_RO[a.action] ?? a.action, meta: a.seller ?? 'Sistem', negative: false })),
+    ...activity.map((a) => ({ date: a.t, title: describe(a.action, a.details ?? {}).label, meta: a.seller ?? 'Sistem', negative: false })),
     { date: c.firstSeen, title: 'Companie descoperită automat', meta: 'LeadRadar', negative: false },
   ].sort((a, b) => b.date.localeCompare(a.date))
   return (

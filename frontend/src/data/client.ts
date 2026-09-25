@@ -7,7 +7,8 @@ export interface Seller {
   id: number
   email: string
   full_name: string
-  role: 'seller' | 'admin'
+  /** 'admin' or a sales-manager role, as stored in the database. */
+  role: string
   active: boolean
   created_at?: string
   last_login_at?: string | null
