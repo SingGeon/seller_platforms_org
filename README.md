@@ -35,7 +35,7 @@ python -m venv .venv && . .venv/bin/activate
 pip install -e pipeline -r backend/requirements.txt
 
 cd backend
-alembic upgrade head && python -m app.seed --sample-docs
+alembic upgrade head && python -m app.seed   # configuration; add --demo for 8 demo companies
 uvicorn app.main:app --reload   # http://localhost:8000/docs
 
 cd ../frontend                  # second terminal
@@ -45,13 +45,14 @@ npm install && npm run dev      # http://localhost:5173
 - API + Swagger: http://localhost:8000/docs
 - Frontend: http://localhost:5173
 - Start a run: `curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{}'`
-- First seller account (becomes admin): `curl -X POST localhost:8000/sellers -H 'content-type: application/json' -d '{"email":"you@company.md","full_name":"Your Name","password":"at-least-8-chars"}'`
+- Admin account (created in the database, never through the API): `python -m app.admin create --email you@company.md --name "Your Name"` (asks for the password)
 
 **Offline mode:** without `ANTHROPIC_API_KEY` the pipeline uses a deterministic keyword backend. It never produces
 a false "yes", but it misses a lot. With `OFFLINE_COLLECT=true` nothing is fetched from the internet and only stored
-documents are analysed. `python -m app.seed --sample-docs` loads sample documents paraphrasing the Annex 1
+documents are analysed. `python -m app.seed --demo` loads 8 demo companies and sample documents paraphrasing the Annex 1
 Lufthansa / DHL examples (marked `meta.sample`, URLs on the reserved `.example` domain) so the demo works end to end
-without keys.
+without keys; `python -m app.seed --remove-demo` deletes them again (demo companies that a registry has confirmed
+in the meantime are real and stay). For real data, load the 1000+ company universe below.
 
 ### Tests and build
 
@@ -348,12 +349,24 @@ erDiagram
 | Outreach | `POST /companies/{id}/outreach?service=&channel=email\|linkedin\|followup&tone=formal\|consultative&language=EN\|RO\|DE` |
 | CRM | `GET /export/leads.csv`, `GET /export/leads.json`, `POST /crm/hubspot` (body: lead ids) |
 | Auth | `POST /auth/login` (`{email, password}` → bearer token, 14 days), `POST /auth/logout`, `GET /auth/me` |
-| Sellers | `POST /sellers` (the first account is free and becomes admin, afterwards admin only), `GET /sellers`, `PUT /sellers/{id}`, `DELETE /sellers/{id}` |
+| Sellers | `POST /sellers` (admin only, creates `seller` accounts), `GET /sellers`, `PUT /sellers/{id}` (yourself: name, password; an admin on a seller: also `active`), `DELETE /sellers/{id}` (admin, seller accounts) |
 | Lead stage / owner | `GET /assignments?seller_id=`, `GET/PUT /companies/{id}/assignment` (`{stage?, seller_id?, unassign?}`), `POST /companies/{id}/notes` |
 | Activity / integrity | `GET /activity?company_id=&seller_id=` (MongoDB log), `GET /admin/integrity`, `POST /admin/integrity/repair` (admin) |
 
-Every endpoint except `/health`, `/auth/status`, `/auth/login` and the very first `POST /sellers` needs
-`Authorization: Bearer <token>` (`AUTH_REQUIRED=false` turns this off for local experiments).
+Every endpoint except `/health`, `/auth/status` and `/auth/login` needs `Authorization: Bearer <token>`
+(`AUTH_REQUIRED=false` turns this off for local experiments).
+
+**Admin accounts are managed only in the database.** The API never creates an admin, never changes a role, and never
+deactivates, resets or deletes another admin; there is no free first account either. Use the backend command, which
+writes straight to PostgreSQL and stores only the password hash:
+
+```bash
+cd backend
+python -m app.admin create --email admin@orange.md --name "Admin Orange"   # asks for the password twice
+python -m app.admin password --email admin@orange.md                         # new password, logs out every session
+python -m app.admin deactivate --email admin@orange.md                       # or: activate
+python -m app.admin list
+```
 
 LinkedIn is used **only** for manual validation fields entered by reps. Nothing is scraped from LinkedIn.
 

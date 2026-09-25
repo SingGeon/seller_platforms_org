@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import integrity, mongo
-from ..auth import bearer_token, current_seller, hash_password, issue_token, optional_seller, require_admin, revoke_token, verify_password
+from ..auth import bearer_token, current_seller, hash_password, issue_token, require_admin, revoke_token, verify_password
 from ..models import LeadAssignment, Seller
 from ..schemas import AssignmentIn, AssignmentOut, LoginIn, NoteIn, SellerCreate, SellerOut, SellerUpdate, TokenOut
 from .deps import company_or_404, get_db, get_or_404
@@ -48,16 +48,18 @@ def me(seller: Seller = Depends(current_seller)):
 
 
 # ------------------------------------------------------------------ sellers
+ADMIN_IN_DB = "Admin accounts are managed directly in the database (python -m app.admin), not through the API"
+
+
 @router.post("/sellers", response_model=SellerOut, status_code=201, tags=["sellers"],
-             summary="Create a seller account (admin only; the very first account is created freely and becomes admin)")
-def create_seller(body: SellerCreate, db: Session = Depends(get_db), caller: Seller | None = Depends(optional_seller)):
-    first = db.scalar(select(func.count(Seller.id))) == 0
-    if not first and (caller is None or caller.role != "admin"):
-        raise HTTPException(403, "Only an admin can create seller accounts")
+             summary="Create a seller account (admin only). Admin accounts are created in the database, never here")
+def create_seller(body: SellerCreate, db: Session = Depends(get_db), _: Seller = Depends(require_admin)):
+    if body.role != "seller":
+        raise HTTPException(403, ADMIN_IN_DB)
     email = body.email.strip().lower()
     if db.scalar(select(Seller.id).where(func.lower(Seller.email) == email)) is not None:
         raise HTTPException(409, "An account with this email already exists")
-    seller = Seller(email=email, full_name=body.full_name.strip(), password_hash=hash_password(body.password), role="admin" if first else body.role)
+    seller = Seller(email=email, full_name=body.full_name.strip(), password_hash=hash_password(body.password), role="seller")
     db.add(seller)
     db.commit()
     return seller
@@ -68,12 +70,20 @@ def list_sellers(db: Session = Depends(get_db), _: Seller = Depends(current_sell
     return list(db.scalars(select(Seller).order_by(Seller.full_name)))
 
 
-@router.put("/sellers/{seller_id}", response_model=SellerOut, tags=["sellers"], summary="Update a seller (admin, or yourself for name/password)")
+@router.put("/sellers/{seller_id}", response_model=SellerOut, tags=["sellers"],
+            summary="Update a seller: yourself (name, password), or an admin on a seller account (also active). Roles never change here")
 def update_seller(seller_id: int, body: SellerUpdate, db: Session = Depends(get_db), caller: Seller = Depends(current_seller)):
     seller = get_or_404(db, Seller, seller_id)
-    is_admin = caller.role == "admin"
-    if not is_admin and (caller.id != seller_id or body.role is not None or body.active is not None):
-        raise HTTPException(403, "You can only change your own name and password")
+    if body.role is not None and body.role != seller.role:
+        raise HTTPException(403, ADMIN_IN_DB)
+    own = caller.id == seller_id
+    if own and body.active is not None and body.active != seller.active:
+        raise HTTPException(403, "You cannot activate or deactivate your own account")
+    if not own:
+        if caller.role != "admin":
+            raise HTTPException(403, "You can only change your own name and password")
+        if seller.role == "admin":
+            raise HTTPException(403, ADMIN_IN_DB)
     if body.full_name is not None:
         seller.full_name = body.full_name.strip()
     if body.password is not None:
@@ -90,7 +100,10 @@ def update_seller(seller_id: int, body: SellerUpdate, db: Session = Depends(get_
 def delete_seller(seller_id: int, db: Session = Depends(get_db), admin: Seller = Depends(require_admin)):
     if seller_id == admin.id:
         raise HTTPException(422, "You cannot delete your own account")
-    db.delete(get_or_404(db, Seller, seller_id))
+    seller = get_or_404(db, Seller, seller_id)
+    if seller.role == "admin":
+        raise HTTPException(403, ADMIN_IN_DB)
+    db.delete(seller)
     db.commit()
     # Mongo keeps the seller's name in the log; only the id reference is cleared.
     mongo.db()[mongo.SIGNALS].update_many({"seller_id": seller_id}, {"$set": {"seller_id": None}})

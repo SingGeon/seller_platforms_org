@@ -3,6 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import mongo
+from app.admin import create_admin
 from app.main import create_app
 from app.models import LeadAssignment
 from sales_pipeline import HeuristicBackend
@@ -16,17 +17,28 @@ def api(seeded):
         yield c
 
 
+@pytest.fixture()
+def admin(seeded):
+    """Admins are created in the database (python -m app.admin), never through the API."""
+    with seeded() as db:
+        return create_admin(db, ADMIN["email"], ADMIN["full_name"], ADMIN["password"])
+
+
 def login(api, email, password):
     resp = api.post("/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200, resp.text
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
 
 
-def test_first_account_is_admin_and_data_needs_login(api):
+def test_no_account_can_be_created_without_an_admin_login(api):
     assert api.get("/auth/status").json() == {"auth_required": True, "has_sellers": False}
+    # an empty database no longer hands out a free first (admin) account
+    assert api.post("/sellers", json=ADMIN).status_code == 401
+    assert api.post("/sellers", json={**ADMIN, "role": "seller"}).status_code == 401
+
+
+def test_data_needs_login(api, admin):
     assert api.get("/leads").status_code == 401
-    assert api.post("/sellers", json=ADMIN).json()["role"] == "admin"
-    assert api.post("/sellers", json={**ADMIN, "email": "x@y.md"}).status_code == 403  # only admins after the first
     assert api.post("/auth/login", json={"email": ADMIN["email"], "password": "wrong"}).status_code == 401
     h = login(api, ADMIN["email"], ADMIN["password"])
     assert api.get("/leads", headers=h).status_code == 200
@@ -35,8 +47,25 @@ def test_first_account_is_admin_and_data_needs_login(api):
     assert api.get("/leads", headers=h).status_code == 401
 
 
-def test_dashboard_joins_postgres_assignment_with_mongo_scores_and_logs_activity(api):
-    api.post("/sellers", json=ADMIN)
+def test_admins_are_never_created_promoted_or_removed_through_the_api(api, admin, seeded):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    assert api.post("/sellers", headers=h, json={**ADMIN, "email": "second-admin@leadradar.md", "role": "admin"}).status_code == 403
+    ana = api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"}).json()
+    assert ana["role"] == "seller"
+    assert api.put(f"/sellers/{ana['id']}", headers=h, json={"role": "admin"}).status_code == 403
+    assert api.put(f"/sellers/{ana['id']}", headers=h, json={"active": False}).json()["active"] is False  # sellers: yes
+
+    with seeded() as db:
+        other = create_admin(db, "other-admin@leadradar.md", "Other Admin", "other-pass-1")
+    assert api.put(f"/sellers/{other.id}", headers=h, json={"active": False}).status_code == 403
+    assert api.put(f"/sellers/{other.id}", headers=h, json={"password": "hijack-pass-1"}).status_code == 403
+    assert api.delete(f"/sellers/{other.id}", headers=h).status_code == 403
+    assert api.put(f"/sellers/{admin.id}", headers=h, json={"role": "seller"}).status_code == 403
+    assert api.put(f"/sellers/{admin.id}", headers=h, json={"full_name": "Admin Renamed"}).json()["full_name"] == "Admin Renamed"
+    assert api.post("/auth/login", json={"email": "ana@leadradar.md", "password": "ana-pass-12"}).status_code == 401  # deactivated
+
+
+def test_dashboard_joins_postgres_assignment_with_mongo_scores_and_logs_activity(api, admin):
     h = login(api, ADMIN["email"], ADMIN["password"])
     ana = api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana Popescu", "password": "ana-pass-12"}).json()
     api.post("/scores/recompute", headers=h)
@@ -54,8 +83,18 @@ def test_dashboard_joins_postgres_assignment_with_mongo_scores_and_logs_activity
     assert all(a["seller"] == "Admin One" and a["seller_id"] for a in log)
 
 
-def test_integrity_finds_and_repairs_cross_database_orphans(api, seeded):
-    api.post("/sellers", json=ADMIN)
+def test_seller_cannot_manage_accounts(api, admin):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"})
+    sh = login(api, "ana@leadradar.md", "ana-pass-12")
+    assert api.post("/sellers", headers=sh, json={"email": "x@leadradar.md", "full_name": "X", "password": "x-pass-123"}).status_code == 403
+    assert api.put(f"/sellers/{admin.id}", headers=sh, json={"full_name": "Hacked"}).status_code == 403
+    me = api.get("/auth/me", headers=sh).json()
+    assert api.put(f"/sellers/{me['id']}", headers=sh, json={"active": False}).status_code == 403
+    assert api.put(f"/sellers/{me['id']}", headers=sh, json={"password": "ana-new-pass-1"}).status_code == 200
+
+
+def test_integrity_finds_and_repairs_cross_database_orphans(api, admin, seeded):
     h = login(api, ADMIN["email"], ADMIN["password"])
     assert api.get("/admin/integrity", headers=h).json()["ok"] is True
 
