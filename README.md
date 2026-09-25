@@ -191,6 +191,10 @@ Companies, leads and runs keep **integer ids** (from the `counters` collection),
 the frontend are unchanged. There are no foreign keys across the two databases: deleting a service, question, rule or
 company removes the matching Mongo documents and the lead assignment in code.
 
+The PostgreSQL structure is also exported as plain SQL in [`docs/database/postgres_schema.sql`](docs/database/postgres_schema.sql).
+In VS Code, `.vscode/settings.json` adds both databases to the SQLTools and MongoDB sidebars ("LeadRadar PostgreSQL (MT)",
+port 5433 on the dev machine, asks for the password; "LeadRadar MongoDB"); the recommended extensions are in `.vscode/extensions.json`.
+
 ### PostgreSQL (ERD)
 
 ```mermaid
