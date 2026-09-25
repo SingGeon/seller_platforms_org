@@ -63,6 +63,30 @@ python calibration/run_calibration.py --provider anthropic   # signal-answer pre
 cd ../frontend && npm run build  # type-check + production build
 ```
 
+## Deployment (cloud)
+
+| Part | Host | Config |
+|---|---|---|
+| Frontend | Netlify | `frontend/netlify.toml`; site variable `VITE_API_URL` = the Render URL |
+| Backend API | Render (free web service, Frankfurt) | `render.yaml` Blueprint: builds `pipeline` + `backend`, runs migrations and the config seed on start |
+| PostgreSQL | Neon (free) | `DATABASE_URL` = direct (not `-pooler`) connection string with `sslmode=require`, `DATABASE_SCHEMA=LeadRadar` |
+| MongoDB | MongoDB Atlas (free M0) | `MONGO_URI` = `mongodb+srv://...`, `MONGO_DB=leadradar`; Network Access must allow Render (0.0.0.0/0) |
+
+`DATABASE_SCHEMA` sets the schema on every connection (and `alembic upgrade head` creates it), because poolers such as
+Neon's ignore the `?options=-csearch_path` URL parameter used locally. Set `CORS_ORIGINS` on Render to the Netlify URL.
+The free Render instance sleeps after 15 minutes without traffic, so the first request afterwards takes about a minute.
+Cloud connection strings live in `.env.cloud` locally (ignored by git), never in the repository.
+
+Copying the local data to the cloud (after the first Render deploy has created the tables):
+
+```bash
+set -a; . ./.env.cloud; set +a     # PG_CLOUD_URL (postgresql://...), MONGO_CLOUD_URI (mongodb+srv://...)
+pg_dump -h localhost -p 5433 -U postgres -d LDR -n '"LeadRadar"' --data-only --exclude-table='"LeadRadar".alembic_version' \
+  | psql "$PG_CLOUD_URL" -v ON_ERROR_STOP=1
+mongodump --uri mongodb://localhost:27017 --db leadradar --archive \
+  | mongorestore --uri "$MONGO_CLOUD_URI" --archive --nsInclude 'leadradar.*' --drop
+```
+
 ## Data sources: discovery and enrichment (GIG-14)
 
 The platform works in two modes. Limits, keys and fallbacks for every source are listed in

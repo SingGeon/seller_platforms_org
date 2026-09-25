@@ -1,0 +1,30 @@
+# Render Blueprint for the backend API (Dashboard -> New -> Blueprint -> this repository).
+# Values marked sync: false are secrets: Render asks for them when the Blueprint is created.
+services:
+  - type: web
+    name: leadradar-api
+    runtime: python
+    plan: free            # sleeps after 15 min without traffic; the first request then takes ~1 min
+    region: frankfurt
+    buildCommand: pip install -e pipeline -r backend/requirements.txt
+    startCommand: cd backend && alembic upgrade head && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DATABASE_URL          # Neon: postgresql+psycopg://USER:PASSWORD@HOST/DB?sslmode=require (direct host, not -pooler)
+        sync: false
+      - key: DATABASE_SCHEMA
+        value: LeadRadar
+      - key: MONGO_URI             # MongoDB Atlas: mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net
+        sync: false
+      - key: MONGO_DB
+        value: leadradar
+      - key: CORS_ORIGINS          # the Netlify site URL, e.g. https://leadradar.netlify.app
+        sync: false
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: ANTHROPIC_API_KEY     # optional: Claude instead of the offline keyword analysis
+        sync: false
+      - key: SCHEDULER_ENABLED
+        value: "false"

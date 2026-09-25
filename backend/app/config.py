@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/LDR"
     # MongoDB: companies and everything about them (documents, AI signals, alerts/events, scores),
     # the LLM cache and pipeline run logs.
+    # PostgreSQL schema for every table (e.g. "LeadRadar"); set on each connection, so it also works on hosts
+    # that ignore the ?options=-csearch_path URL parameter (Neon, Supabase poolers).
+    database_schema: str = ""
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "leadradar"
 
