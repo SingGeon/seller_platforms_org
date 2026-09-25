@@ -50,6 +50,10 @@ uvicorn app.main:app --reload
 pytest -q                       # backend tests (SQLite, no network)
 cd ../pipeline && pytest -q     # pipeline tests (mocked HTTP + mocked Anthropic transport)
 python calibration/run_calibration.py --provider anthropic   # signal-answer precision (needs a key)
+
+cd ../frontend                  # web app, Node 22.22+
+npm install && npm run dev      # http://localhost:5173
+npm run build                   # type-check + production build
 ```
 
 ## Architecture
@@ -253,6 +257,75 @@ erDiagram
 | CRM | `GET /export/leads.csv`, `GET /export/leads.json`, `POST /crm/hubspot` (body: lead ids) |
 
 LinkedIn is used **only** for manual validation fields entered by reps. Nothing is scraped from LinkedIn.
+
+## Web application (`frontend/`)
+
+A CRM-style dashboard for sales reps with no AI background: they see who to call, why now, and the evidence
+behind every point of the score. The UI is in Romanian and follows the Orange visual style of
+[orange.md](https://www.orange.md).
+
+**Stack:** React 19, TypeScript, Vite 8, Tailwind CSS 4, React Router, lucide icons. The Docker image runs on Node 24.
+
+### Pages
+
+| Route | Page | What the rep can do |
+|---|---|---|
+| `/` | Home | KPIs (new leads, hot leads, signals in the last 24 h, active sources), fresh-signal feed, top 5 leads to contact, leads per service |
+| `/leads` | Leads | Sortable table with score, score change, best-matching service, main signal with source, stage and owner; filters for service, country, stage, "new only" and disqualified; global search; CSV export |
+| `/leads/:id` | Company record | Score out of 100 with per-service breakdown, AI "why this lead, now", every signal with its question, verbatim quote, source, date, AI confidence and points; timeline; notes; stage change; manual LinkedIn check; send to HubSpot; generate message |
+| `/pipeline` | Pipeline | Kanban by stage (New → Qualified → Contacted → Negotiation → Won), drag and drop |
+| `/config` | Configuration | Signal questions per service in plain language with High / Medium / Low weight and on/off switch; negative and disqualifying rules; ICP (markets, industries, minimum size, B2B only); scoring points, hot-lead threshold and signal decay |
+| `/runs` | Sources and runs | The five refresh tiers (stream, RSS, incremental, list comparison, daily), status and last run of every source, new documents per source, "Run now" |
+
+### Design
+
+- Orange `#FF7900` for fills and `#F16E00` for text on white, black header, `#EEEEEE` bands, Helvetica Neue bold,
+  square corners and 2px-border buttons, all defined as tokens in `frontend/src/index.css`.
+- The lead score is drawn as 10 orange squares, echoing the pixel motif of Orange Business.
+- Service colours (`#527EDB`, `#50BE87`, `#A885D8`) pass a colour-blind separation check and always sit next to a
+  text label. Status is never shown by colour alone.
+
+### Data and API wiring
+
+The app currently runs on **demo data**: 15 fictional companies on the reserved `.example` domain in
+`frontend/src/data/mock.ts`, so no signal is ever invented about a real company. Every page reads through
+`frontend/src/data/api.ts`, so connecting the backend only changes that file. The API base URL comes from
+`VITE_API_URL` (set in `docker-compose.yml`).
+
+| UI | Backend endpoint | Status |
+|---|---|---|
+| Leads, Home, Pipeline | `GET /leads` | Demo data |
+| Company record | `GET /companies/{id}`, `/events`, `/documents`, `POST /companies/{id}/explain` | Demo data |
+| Configuration | `/services`, `/services/{id}/questions`, `/rules`, `/icp`, `/scoring-config`, `POST /scores/recompute` | UI only, not saved |
+| Sources and runs | `POST /runs`, `GET /runs`, `GET /runs/{id}` | Demo data, "Run now" simulated |
+| Generate message | `POST /companies/{id}/outreach` | Placeholder |
+| Send to HubSpot / Export CSV | `POST /crm/hubspot`, `GET /export/leads.csv` | HubSpot not wired; CSV exported in the browser |
+| LinkedIn check | `PUT /companies/{id}/linkedin` | Opens a LinkedIn search for manual review; fields not yet saved |
+
+## Jira mapping (frontend / UX / research)
+
+| Task | Status |
+|---|---|
+| GIG-11 Kick-off: MVP, roles, hourly plan | Done: plan, architecture proposal and scoring philosophy in the team Notion page |
+| GIG-14 API keys and limits | Research done: ~45 public sources and APIs checked for price, limits and refresh mechanism, about 40 tested live; catalogue in Notion. Keys (SerpAPI, Adzuna, NewsAPI, LLM) still to be created |
+| GIG-18 Initial config with 2 demo services | Partly done: the UI ships Automation, Cyber and Digital question sets; still to align with the APA + Cyber seed in the backend |
+| GIG-19 Target company list | To do. Crunchbase's free API no longer exists, so the list goes through `POST /companies/import` (CSV) |
+| GIG-24 LinkedIn manual validation | Partly done: "LinkedIn" button on the company record for a manual check; the form behind `PUT /companies/{id}/linkedin` is still to do |
+| GIG-31 Validate scoring on Annex 1 | To do (calibration set in `pipeline/calibration/`) |
+| GIG-33 Frontend setup | Done: React + TypeScript + Vite + Tailwind, Orange design tokens, CRM layout, routing, Dockerfile |
+| GIG-34 Leads page | Done on demo data |
+| GIG-35 Company record | Done on demo data (message tab is a placeholder until wired to GIG-38) |
+| GIG-36 Configuration page | UI done; changes are not saved to the API yet |
+| GIG-37 Runs page | UI done on demo data |
+| GIG-39 Value-proposition library | To do |
+| GIG-41 Final demo dataset | To do |
+| GIG-42 Testing, bug bash, code freeze at H33 | To do |
+| GIG-43 Jury presentation | To do |
+| GIG-44 5-minute demo script and backup video | To do |
+| GIG-45 README, architecture docs, deploy | In progress: web application section above and `frontend/README.md` |
+
+**Next frontend step:** replace the demo data in `frontend/src/data/api.ts` with calls to the API above, starting
+with `GET /leads` and `GET /companies/{id}`.
 
 ## Jira mapping (backend / data / AI: Gheorghe Singereanu)
 
