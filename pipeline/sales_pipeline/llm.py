@@ -28,7 +28,7 @@ from .prompts import (
     render_passages,
     signal_user_prompt,
 )
-from .relevance import Chunk, question_terms, score_text
+from .relevance import Chunk, fold, question_terms, score_text
 
 EXTRACT_SYSTEM = """For each numbered news headline or snippet, name the single company or public organisation it is \
 primarily about (the one that announced, suffered or did the thing), as it would appear in a company register. \
@@ -273,25 +273,35 @@ class AnthropicBackend:
 
 
 EVENT_PATTERNS: dict[str, list[tuple[str, str, str]]] = {
-    # event_type: [(regex, subtype, polarity)]
+    # event_type: [(regex, subtype, polarity)]; matched on lower-case text without diacritics (relevance.fold),
+    # English first, then Romanian for the RO / MD press.
     "security_incident": [
         (r"data breach|breach of|ransomware|cyber ?attack|hack(ed|ers)|security incident|outage", "incident", "neutral"),
+        (r"atac(ul|uri)? (cibernetic|informatic)|bresa de securitate|scurger(e|i)(a)? de date|atacat de hackeri|incident (de securitate|cibernetic)", "incident", "neutral"),
     ],
     "leadership_change": [
         (r"(appoint|named|hires?|joins?|new)\b.{0,60}\b(ceo|cio|cto|ciso|coo|cdo|chief [a-z]+ officer|head of (digital|automation|it))", "appointment", "positive"),
         (r"(ceo|cio|cto|ciso|coo|cdo)\b.{0,40}\b(steps down|resigns|to leave|departs)", "departure", "neutral"),
+        (r"(a fost numit|a fost numita|preia (conducerea|functia)|noul|noua)\b.{0,60}\b(director general|director executiv|ceo|cio|cto|cfo|coo|director it|director de tehnologie|presedinte)", "appointment", "positive"),
+        (r"(director general|ceo|presedinte)\b.{0,40}\b(demisioneaza|a demisionat|pleaca de la conducere)", "departure", "neutral"),
     ],
     "tech_stack": [
         (r"s/4hana|sap migration|migrat\w+ to (the )?cloud|uipath|salesforce|servicenow|celonis|power automate", "technology", "neutral"),
+        (r"migrare(a)? in cloud|trecerea in cloud|implementarea (sap|erp)", "technology", "neutral"),
     ],
     "compliance_event": [
         (r"\bnis ?2\b|\bdora\b|gdpr fine|fined .{0,40}(gdpr|data protection)|regulatory audit|iso 27001", "regulation", "neutral"),
+        (r"\banspdcp\b|amend\w* .{0,40}(gdpr|protectia datelor)|directiva nis", "regulation", "neutral"),
     ],
     "corporate_event": [
         (r"layoffs?|job cuts|cut .{0,20}(jobs|positions)|hiring freeze|insolven", "downsizing", "negative"),
         (r"acquires|acquisition of|merger|to acquire", "m&a", "positive"),
         (r"raises? \$?€?\d|funding round|series [a-e]\b", "funding", "positive"),
         (r"restructur|transformation program|efficiency program", "restructuring", "neutral"),
+        (r"concedier|disponibiliz|insolventa|faliment", "downsizing", "negative"),
+        (r"achizitia|a achizitionat|a preluat|preluarea|fuziune", "m&a", "positive"),
+        (r"runda de finantare|a atras .{0,30}(euro|lei|dolari)|investitie de .{0,20}(milioane|mil\.)", "funding", "positive"),
+        (r"reorganizar|program de eficientizare", "restructuring", "neutral"),
     ],
 }
 
@@ -342,11 +352,12 @@ class HeuristicBackend:
         events: list[DetectedEvent] = []
         for c in chunks:
             text = f"{c.title}. {c.text}"
+            folded = fold(text)
             for etype, patterns in EVENT_PATTERNS.items():
                 for pattern, subtype, polarity in patterns:
-                    m = re.search(pattern, text, re.I)
+                    m = re.search(pattern, folded)
                     if m:
-                        sentence = next((s for s in _sentences(text) if re.search(pattern, s, re.I)), c.title)
+                        sentence = next((s for s in _sentences(text) if re.search(pattern, fold(s))), c.title)
                         events.append(
                             DetectedEvent(
                                 event_type=etype, subtype=subtype, title=clean_text(c.title or sentence)[:300],

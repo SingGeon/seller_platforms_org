@@ -136,9 +136,18 @@ retries a timed-out page with smaller pages (250 → 100 → 50 → 25). Wikidat
 rate-limits (429) at busy times for DE, GB, PL and NL; their quota then goes to the other countries and GLEIF fills
 the rest, and a later re-run with `--countries DE,GB,PL,NL` adds them (companies are never duplicated).
 
-**Measured on 25 Sep 2026 (real sources):** 984 companies loaded (RO 508 + MD 53 from Wikidata, 438 legal entities from
-GLEIF; Wikidata timed out for DE, AT, PL, NL and GB). Google News throttled the run after about 300 companies, so only
-33 companies have news yet; analysis and scoring of all 984 took 16 s with the heuristic backend.
+**Measured on 25-26 Sep 2026 (real sources):** 984 companies loaded (RO 508 + MD 53 from Wikidata, 438 legal entities from
+GLEIF; Wikidata timed out for DE, AT, PL, NL and GB). Google News throttled the first run after about 300 companies
+(111 articles). `--refresh-news --news-providers bing_news` then added 3,208 Bing News articles and 12 business-press
+articles in 24 min: **499 companies now have 3,331 news articles**. Analysis and scoring of all 984 takes about 15 s with
+the heuristic backend: 55 "yes" signals, 125 alerts, 3 Warm leads (SecureNET Systems, Transelectrica, OMV Petrom).
+
+**Language.** Questions are written in English but most of this news is Romanian. The relevance filter and the offline
+heuristic therefore also search Romanian (and some German) equivalents of every English term (`TERM_TRANSLATIONS` in
+`pipeline/sales_pipeline/relevance.py`), accent-insensitive, and the event detector has Romanian patterns
+(atac cibernetic, a fost numit director general, insolvență, achiziție, ...). Before this, the same 3,331 articles gave
+2 "yes" signals. The heuristic still reads keywords, not meaning (a sponsorship "parteneriat" counts as a partner);
+with `ANTHROPIC_API_KEY` set, Claude answers the questions on the same passages.
 
 **Scale** (measured with mocked registries): 1,002 companies pass registry load, dedupe, news, analysis and scoring
 in about 30 s with the heuristic backend. With real sources, expect about 5-10 min for Wikidata + Google News,

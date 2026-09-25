@@ -68,3 +68,23 @@ def test_bing_news_keeps_the_publisher_url_and_source():
     assert "cc=RO" in seen["url"] and "setlang=ro" in seen["url"]
     assert docs[0].url == "https://www.forbes.ro/digi-dividende"
     assert docs[0].published_at is not None and docs[0].meta["provider"] == "bing_news_rss"
+
+
+def test_heuristic_understands_romanian_news():
+    from sales_pipeline import HeuristicBackend
+    from sales_pipeline.relevance import Chunk
+    from sales_pipeline.schemas import QuestionSpec
+
+    chunks = [Chunk(doc_index=0, url="https://ro.example/1", title="Atac", date="2026-09-20", source_type="news",
+                    text="Compania a fost victima unui atac cibernetic cu ransomware, iar o parte din datele clienților a fost furată.")]
+    q = QuestionSpec(key="q:1", text="Has the company suffered a recent security incident, data breach or ransomware attack?",
+                     keywords=["data breach", "ransomware", "cyberattack", "security incident"])
+    answers, _ = asyncio.run(HeuristicBackend().answer_questions(None, [q], chunks))
+    assert answers[0].answer == "yes" and "atac cibernetic" in answers[0].evidence[0].quote
+
+    events, _ = asyncio.run(HeuristicBackend().classify_events(None, [
+        *chunks,
+        Chunk(doc_index=1, url="https://ro.example/2", title="Numire", date="2026-09-21", source_type="news",
+              text="Maria Popescu a fost numită director general al companiei începând cu 1 octombrie."),
+    ]))
+    assert {e.event_type for e in events} == {"security_incident", "leadership_change"}
