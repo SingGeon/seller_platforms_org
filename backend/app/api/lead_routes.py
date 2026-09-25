@@ -98,6 +98,37 @@ def list_leads(
     return rows[:limit]
 
 
+@router.get("/dashboard/companies", tags=["leads"], summary="Every scored company with per-service scores and evidence, in one call (for the dashboard)")
+def dashboard_companies(include_outside_icp: bool = False, max_signals: int = Query(8, ge=0, le=50), db: Session = Depends(get_db)):
+    rows = db.execute(
+        select(LeadScore, Company, Service).join(Company, Company.id == LeadScore.company_id).join(Service, Service.id == LeadScore.service_id)
+    ).all()
+    by_company: dict[int, dict] = {}
+    for lead, company, service in rows:
+        entry = by_company.get(company.id)
+        if entry is None:
+            entry = by_company[company.id] = {
+                "company": CompanyOut.model_validate(company).model_dump(mode="json", exclude={"linkedin_validation", "registry_profiles"}),
+                "registry_ref": {k: (v or {}).get("wikidata_id") or (v or {}).get("lei") or (v or {}).get("ref") for k, v in (company.registry_profiles or {}).items()},
+                "scores": [],
+                "outside_icp": True,
+            }
+        outside = bool((lead.breakdown or {}).get("outside_icp"))
+        entry["outside_icp"] = entry["outside_icp"] and outside
+        items = [i for i in ((lead.breakdown or {}).get("signals") or {}).get("items", []) if i.get("points") and i.get("evidence")]
+        entry["scores"].append({
+            "service_id": service.id, "service_slug": service.slug, "service": service.name,
+            "final_score": lead.final_score, "previous_score": lead.previous_score, "score_changed_at": lead.score_changed_at,
+            "icp_score": lead.icp_score, "signal_score": lead.signal_score, "tier": lead.tier, "disqualified": lead.disqualified,
+            "disqualification_reasons": lead.disqualification_reasons or [], "outside_icp": outside,
+            "summary": (lead.explanation or {}).get("summary", ""), "recommendation": (lead.explanation or {}).get("recommendation", ""),
+            "computed_at": lead.computed_at, "signals": items[:max_signals],
+        })
+    out = [e for e in by_company.values() if include_outside_icp or not e["outside_icp"] or any(s["disqualified"] for s in e["scores"])]
+    out.sort(key=lambda e: -max((s["final_score"] for s in e["scores"] if not s["disqualified"]), default=-1))
+    return out
+
+
 # ------------------------------------------------------------------ companies
 @router.get("/companies", response_model=list[CompanyOut], tags=["companies"])
 def list_companies(q: str | None = None, db: Session = Depends(get_db)):

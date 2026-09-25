@@ -12,6 +12,9 @@ LEGAL_SUFFIXES = [
     "incorporated", "inc", "corporation", "corp", "company", "co", "limited", "ltd", "llc", "llp", "lp", "plc",
     "gmbh", "ag", "kg", "kgaa", "se", "sa", "s a", "sas", "sarl", "srl", "s r l", "spa", "s p a", "bv", "nv", "ab",
     "as", "a s", "asa", "oy", "oyj", "sp z o o", "sro", "s r o", "doo", "d o o", "kft", "zrt", "nyrt", "pte", "pty",
+    "aktiengesellschaft", "gesellschaft mit beschrankter haftung", "societe anonyme", "sociedad anonima", "societa per azioni",
+    "spolka akcyjna", "spolka z ograniczona odpowiedzialnoscia", "societate pe actiuni", "societate cu raspundere limitata",
+    "naamloze vennootschap", "besloten vennootschap", "aktiebolag", "public limited company",
     "holding", "holdings", "group", "the",
 ]
 _SUFFIX_RE = re.compile(r"(?:\s+(?:" + "|".join(re.escape(s) for s in sorted(LEGAL_SUFFIXES, key=len, reverse=True)) + r"))+$")
@@ -33,6 +36,32 @@ def normalize_company_name(name: str) -> str:
         prev = s
         s = _SUFFIX_RE.sub("", s).strip()
     return s
+
+
+_DISPLAY_SUFFIX_RE = re.compile(
+    r"(?:[\s,]+(?:" + "|".join(re.escape(x).replace(r"\ ", r"[\s.]*") for x in sorted(
+        [x for x in LEGAL_SUFFIXES if x not in ("group", "the", "company", "co", "holding", "holdings")], key=len, reverse=True
+    )) + r")\.?)+$",
+    re.I,
+)
+
+
+def search_name(name: str) -> str:
+    """Name as the press writes it: 'Banca Transilvania S.A.' -> 'Banca Transilvania' (case kept)."""
+    s = re.sub(r"\s*\(.*?\)\s*", " ", name or "").strip()
+    stripped = _DISPLAY_SUFFIX_RE.sub("", s).strip(" ,.")
+    return stripped or s
+
+
+def _plain(text: str) -> str:
+    s = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode().lower()
+    return " " + re.sub(r"[^a-z0-9]+", " ", s).strip() + " "
+
+
+def mentions(name: str, text: str) -> bool:
+    """Does `text` mention the company (accent/punctuation-insensitive, legal form optional)?"""
+    needle = _plain(search_name(name)).strip()
+    return bool(needle) and f" {needle} " in _plain(text)
 
 
 def normalize_domain(value: str | None) -> str | None:

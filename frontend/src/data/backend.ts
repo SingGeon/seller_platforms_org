@@ -16,14 +16,14 @@ const SERVICE_NAMES: Record<ServiceId, [string, string]> = {
 interface ApiService { id: number; name: string; slug: string; active: boolean }
 interface ApiQuestion { id: number; service_id: number; text: string; weight: 'High' | 'Medium' | 'Low'; is_negative: boolean; active: boolean }
 interface ApiRule { id: number; service_id: number | null; name: string; rule_type: string; question: string | null; active: boolean }
-interface ApiLead {
-  lead_id: number; company_id: number; service_id: number; final_score: number; tier: string; disqualified: boolean
-  previous_score: number | null; score_changed_at: string | null; computed_at: string; summary: string
-}
 interface ApiEvidence { quote?: string; url?: string; date?: string }
 interface ApiItem { kind: string; question_id?: number; event_type?: string; label: string; confidence: number; points: number; evidence: ApiEvidence[] }
-interface ApiScore { service_id: number; final_score: number; disqualified: boolean; breakdown: { signals?: { items?: ApiItem[] } }; explanation: { summary?: string }; computed_at: string }
-interface ApiCompanyDetail {
+interface ApiScore {
+  service_id: number; final_score: number; previous_score: number | null; score_changed_at: string | null; disqualified: boolean
+  summary: string; computed_at: string; signals: ApiItem[]
+}
+// GET /dashboard/companies: every scored company with its per-service scores and evidence, in one call.
+interface ApiDashboardCompany {
   company: { id: number; name: string; domain: string | null; industry: string | null; country: string | null; employee_count: number | null; created_at: string; origin: string }
   scores: ApiScore[]
 }
@@ -108,11 +108,11 @@ function mapSource(s: ApiSource): SourceStatus {
   }
 }
 
-function signalsFrom(detail: ApiCompanyDetail, services: Map<number, ServiceId>): Signal[] {
+function signalsFrom(detail: ApiDashboardCompany, services: Map<number, ServiceId>): Signal[] {
   const out: Signal[] = []
   for (const score of detail.scores) {
     const service = services.get(score.service_id) ?? null
-    for (const [i, item] of (score.breakdown.signals?.items ?? []).entries()) {
+    for (const [i, item] of score.signals.entries()) {
       const ev = item.evidence?.[0]
       if (!ev?.url || item.points === 0) continue
       out.push({
@@ -135,9 +135,9 @@ export interface BackendData {
 }
 
 export async function loadBackendData(): Promise<BackendData> {
-  const [apiServices, leads, apiSources, rules] = await Promise.all([
+  const [apiServices, dashboard, apiSources, rules] = await Promise.all([
     getJson<ApiService[]>('/services'),
-    getJson<ApiLead[]>('/leads?limit=1000'),
+    getJson<ApiDashboardCompany[]>('/dashboard/companies', 60_000),
     getJson<ApiSource[]>('/sources'),
     getJson<ApiRule[]>('/rules'),
   ])
@@ -160,10 +160,8 @@ export async function loadBackendData(): Promise<BackendData> {
     })),
   ]
 
-  const companyIds = [...new Set(leads.map((l) => l.company_id))]
-  const details = await Promise.all(companyIds.map((id) => getJson<ApiCompanyDetail>(`/companies/${id}`)))
-  const companies: Company[] = details.map((d) => {
-    const own = leads.filter((l) => l.company_id === d.company.id)
+  const companies: Company[] = dashboard.map((d) => {
+    const own = d.scores
     const eligible = own.filter((l) => !l.disqualified)
     const best = [...(eligible.length ? eligible : own)].sort((a, b) => b.final_score - a.final_score)[0]
     const serviceScores = { automation: 0, cyber: 0, digital: 0 } as Record<ServiceId, number>

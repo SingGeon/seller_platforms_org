@@ -13,6 +13,7 @@ import httpx
 from ..documents import Document, clean_text, dedupe
 from ..schemas import CompanyInfo
 from ..sources.base import polite_request
+from ..sources.companies import mentions, search_name
 
 # (hl, gl, ceid) per market; kept here to avoid importing the discovery feeds module.
 GOOGLE_EDITIONS = {
@@ -61,7 +62,7 @@ def _iso_date(value: str | None) -> datetime | None:
 async def fetch_gdelt(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str], max_records: int = 50) -> list[Document]:
     kw = " OR ".join(f'"{k}"' if " " in k else k for k in keywords)
     params = {
-        "query": f'"{company.name}" ({kw})',
+        "query": f'"{search_name(company.name)}" ({kw})',
         "mode": "artlist",
         "format": "json",
         "maxrecords": str(max_records),
@@ -94,7 +95,7 @@ async def fetch_gdelt(client: httpx.AsyncClient, company: CompanyInfo, keywords:
 async def fetch_newsapi(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str], api_key: str) -> list[Document]:
     kw = " OR ".join(f'"{k}"' for k in keywords)
     params = {
-        "q": f'"{company.name}" AND ({kw})',
+        "q": f'"{search_name(company.name)}" AND ({kw})',
         "language": "en",
         "sortBy": "publishedAt",
         "pageSize": "50",
@@ -122,10 +123,10 @@ async def fetch_newsapi(client: httpx.AsyncClient, company: CompanyInfo, keyword
 
 
 async def fetch_google_news(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str]) -> list[Document]:
-    query = f'"{company.name}" ' + " OR ".join(keywords[:6])
+    query = f'"{search_name(company.name)}" ' + " OR ".join(keywords[:6])
     # Local-language edition for the company's market (gl/hl), e.g. RO/MD news in Romanian.
     hl, gl, ceid = GOOGLE_EDITIONS.get(company.country or "US", GOOGLE_EDITIONS["US"])
-    resp = await client.get(f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={hl}&gl={gl}&ceid={ceid}")
+    resp = await polite_request(client, "GET", f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={hl}&gl={gl}&ceid={ceid}", retries=2)
     resp.raise_for_status()
     feed = feedparser.parse(resp.text)
     docs = []
@@ -157,17 +158,23 @@ async def collect_news(
     newsapi_key: str | None = None,
     keywords: list[str] | None = None,
     client: httpx.AsyncClient | None = None,
+    providers: tuple[str, ...] = ("gdelt", "google_news", "newsapi"),
 ) -> list[Document]:
     """Collect and deduplicate news for one company from every configured provider.
 
-    A failing provider is logged and skipped so one outage never empties a run.
+    A failing provider is logged and skipped so one outage never empties a run. Bulk runs
+    over thousands of companies pass providers=("google_news",): GDELT allows 1 request / 5 s.
     """
     keywords = keywords or DEFAULT_KEYWORDS
     own_client = client is None
     client = client or httpx.AsyncClient(timeout=20, follow_redirects=True, headers={"User-Agent": "OrangeSignals/0.1"})
     try:
-        jobs = [("gdelt", fetch_gdelt(client, company, keywords)), ("google_news", fetch_google_news(client, company, keywords))]
-        if newsapi_key:
+        jobs = []
+        if "gdelt" in providers:
+            jobs.append(("gdelt", fetch_gdelt(client, company, keywords)))
+        if "google_news" in providers:
+            jobs.append(("google_news", fetch_google_news(client, company, keywords)))
+        if newsapi_key and "newsapi" in providers:
             jobs.append(("newsapi", fetch_newsapi(client, company, keywords, newsapi_key)))
         docs: list[Document] = []
         for name, job in jobs:
@@ -175,9 +182,8 @@ async def collect_news(
                 docs.extend(await job)
             except (httpx.HTTPError, ValueError, KeyError) as exc:
                 log.warning("news provider %s failed for %s: %s", name, company.name, exc)
-        # Keep only articles that actually mention the company.
-        needle = company.name.lower().split(" group")[0]
-        docs = [d for d in docs if needle in (d.title + " " + d.text).lower()]
+        # Keep only articles that actually mention the company (legal form and accents optional).
+        docs = [d for d in docs if mentions(company.name, d.title + " " + d.text)]
         docs.sort(key=lambda d: d.published_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         return dedupe(docs)
     finally:

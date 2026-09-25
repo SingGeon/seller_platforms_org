@@ -195,7 +195,7 @@ def test_wikidata_profile_prefers_domain_match():
     ]}}
     ctx = ctx_for({("www.wikidata.org", "/w/api.php"): httpx.Response(200, json=search), ("query.wikidata.org", "/sparql"): httpx.Response(200, json=sparql)})
     p = run(wikidata_profile(ctx.client, "DHL Group", "group.dhl.com"))
-    assert (p.ref, p.industry, p.country, p.employee_count, p.domain) == ("Q2", "logistics", "DE", 594879, "group.dhl.com")
+    assert (p.ref, p.industry, p.country, p.employee_count, p.domain) == ("Q2", "Logistics", "DE", 594879, "group.dhl.com")
 
 
 # ------------------------------------------------------------------ framework
@@ -219,3 +219,26 @@ def test_catalog_is_complete_and_documented():
     assert BY_NAME["adzuna"].missing_keys({}) == ["adzuna_app_id", "adzuna_app_key"]
     md = render_markdown()
     assert "TED" in md and "Crunchbase API" in md
+
+
+# ------------------------------------------------------------------ bulk universe helpers
+def test_search_name_and_mentions():
+    from sales_pipeline.sources.companies import mentions, search_name
+
+    assert search_name("Banca Transilvania S.A.") == "Banca Transilvania"
+    assert search_name("Siemens Aktiengesellschaft") == "Siemens"
+    assert search_name("DHL Group") == "DHL Group"
+    assert mentions("Banca Transilvania S.A.", "Banca Transilvania lansează un program")
+    assert mentions("Petrom", "OMV Petrom anunță investiții")
+    assert not mentions("Orange", "Orangeade sales rise")
+
+
+def test_normalize_industry_to_icp_vocabulary():
+    from sales_pipeline.sources.bulk import normalize_industry
+
+    assert normalize_industry("banking") == "Banking"
+    assert normalize_industry("air transport") == "Aviation"
+    assert normalize_industry("telecommunications industry") == "Telecommunications"
+    assert normalize_industry("automotive industry") == "Manufacturing"
+    assert normalize_industry("wine") == "Wine"
+    assert normalize_industry(None) is None

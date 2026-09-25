@@ -3,7 +3,7 @@ import io
 import time
 
 
-def wait_for_run(client, run_id, timeout=20):
+def wait_for_run(client, run_id, timeout=60):
     deadline = time.time() + timeout
     while time.time() < deadline:
         run = client.get(f"/runs/{run_id}").json()

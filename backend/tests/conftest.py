@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from app import models  # noqa: F401
 from app.db import Base
@@ -24,8 +23,10 @@ def fast_retries(monkeypatch):
 
 
 @pytest.fixture()
-def session_factory():
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+def session_factory(tmp_path):
+    # One connection per session, like PostgreSQL in production. A single shared in-memory
+    # connection (StaticPool) lets a request thread's ROLLBACK undo a background run's writes.
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False, "timeout": 30})
     Base.metadata.create_all(engine)
     yield sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     engine.dispose()

@@ -2,15 +2,17 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from sales_pipeline.sources.bulk import COUNTRY_QID
 from sales_pipeline.sources.catalog import BY_NAME, NOT_IMPLEMENTED, SOURCES
 
+from ..bootstrap import bootstrap
 from ..discovery import get_state, run_discovery, source_keys
 from ..models import PipelineRun, SourceState
 from ..schemas import RunOut
@@ -122,6 +124,56 @@ def _start(request: Request, db: Session, sources: list[str] | None, enrich_top_
         run_discovery(request.app.state.session_factory, run.id, sources=sources, enrich_top_n=enrich_top_n,
                       llm=request.app.state.llm_override, client=request.app.state.http_override)
     )
+    request.app.state.background_tasks.add(task)
+    task.add_done_callback(request.app.state.background_tasks.discard)
+    return run
+
+
+class BootstrapIn(BaseModel):
+    countries: list[str] = Field(default_factory=lambda: ["RO", "MD", "DE", "AT", "PL", "NL", "GB"])
+    target: int = Field(1000, ge=1, le=20000)
+    gleif_fill: bool = False
+    news: bool = True
+    gdelt: bool = False
+    enrich_top_n: int = Field(0, ge=0, le=500)
+
+
+@router.post("/bootstrap/runs", response_model=RunOut, status_code=202, summary="Load a large real company universe (Wikidata/GLEIF + news + scoring)")
+async def start_bootstrap(body: BootstrapIn, request: Request, db: Session = Depends(get_db)):
+    countries = [c.strip().upper() for c in body.countries]
+    unknown = [c for c in countries if c not in COUNTRY_QID]
+    if unknown:
+        raise HTTPException(422, f"Unsupported countries {unknown}; supported: {sorted(COUNTRY_QID)}")
+    active = db.scalar(select(PipelineRun).where(PipelineRun.status.in_(["queued", "running"])).limit(1))
+    if active is not None:
+        raise HTTPException(409, f"Run {active.id} is still {active.status}")
+    run = PipelineRun(status="running", kind="bootstrap", params=body.model_dump(), started_at=datetime.now(timezone.utc))
+    db.add(run)
+    db.commit()
+    sf = request.app.state.session_factory
+    run_id = run.id
+
+    def say(msg: str) -> None:
+        with sf() as s:
+            r = s.get(PipelineRun, run_id)
+            r.log = [*(r.log or []), {"t": datetime.now(timezone.utc).isoformat(), "msg": msg}][-300:]
+            s.commit()
+
+    async def go() -> None:
+        try:
+            stats = await bootstrap(
+                sf, countries=countries, target=body.target, gleif_fill=body.gleif_fill, news=body.news, gdelt=body.gdelt,
+                enrich_top_n=body.enrich_top_n, llm=request.app.state.llm_override, client=request.app.state.http_override, say=say, run_id=run_id,
+            )
+            status, error = "succeeded", None
+        except Exception as exc:  # noqa: BLE001 - always end in a terminal state
+            stats, status, error = {}, "failed", str(exc)[:2000]
+        with sf() as s:
+            r = s.get(PipelineRun, run_id)
+            r.status, r.error, r.stats, r.finished_at = status, error, stats, datetime.now(timezone.utc)
+            s.commit()
+
+    task = asyncio.create_task(go())
     request.app.state.background_tasks.add(task)
     task.add_done_callback(request.app.state.background_tasks.discard)
     return run

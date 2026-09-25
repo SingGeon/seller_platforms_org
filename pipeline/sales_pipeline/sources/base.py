@@ -120,6 +120,8 @@ class HostThrottle:
             "public.mtender.gov.md": 1.0,
             "query.wikidata.org": 1.0,
             "api.ted.europa.eu": 0.5,
+            "news.google.com": 0.3,  # bulk runs query it once per company
+            "api.gleif.org": 1.0,  # 60 requests / minute
         }
 
     async def wait(self, host: str) -> None:

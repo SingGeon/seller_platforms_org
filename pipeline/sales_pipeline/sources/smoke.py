@@ -23,6 +23,8 @@ from ..schemas import CompanyInfo
 from .base import SourceContext
 from .catalog import SOURCES
 from .cyber import load_kev
+from ..collectors.news import fetch_google_news
+from .bulk import gleif_companies, wikidata_companies
 from .registry import gleif_profile, wikidata_profile
 
 KEY_ENV = ["adzuna_app_id", "adzuna_app_key", "newsdata_key", "currents_key", "serpapi_key", "themuse_key"]
@@ -59,11 +61,19 @@ async def main(names: list[str]) -> int:
                 "cisa_kev": load_kev(client),
                 "greenhouse": fetch_greenhouse(client, CompanyInfo(name="GitLab"), "gitlab"),
                 "ashby": fetch_ashby(client, CompanyInfo(name="Ramp"), "ramp"),
+                "bulk_wikidata_RO": wikidata_companies(client, "RO", 25),
+                "bulk_gleif_MD": gleif_companies(client, "MD", 25),
+                "google_news_RO": fetch_google_news(client, CompanyInfo(name="Banca Transilvania", country="RO"), ["automatizare", "digitalizare", "AI"]),
             }
             for name, coro in checks.items():
                 try:
                     res = await coro
-                    detail = f"{len(res)} records" if isinstance(res, list) else (res.model_dump(exclude_none=True) if res else "no match")
+                    if isinstance(res, list):
+                        first = res[0] if res else None
+                        label = getattr(first, "name", None) or getattr(first, "title", None) or (first.get("cveID") if isinstance(first, dict) else "")
+                        detail = f"{len(res)} records; first: {label}"
+                    else:
+                        detail = res.model_dump(exclude_none=True) if res else "no match"
                     print(f"OK   {name:22} {str(detail)[:140]}")
                 except Exception as exc:  # noqa: BLE001
                     failures += 1

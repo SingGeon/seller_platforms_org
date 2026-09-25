@@ -90,6 +90,36 @@ Check every source live from a machine with internet access (nothing is written)
 cd pipeline && SEC_USER_AGENT="Your Name you@example.com" COUNTRIES=RO,MD python -m sales_pipeline.sources.smoke
 ```
 
+## Building a universe of 1000+ real companies
+
+One command loads real companies from open registries, fetches their news and scores them:
+
+```bash
+cd backend
+python -m app.bootstrap --countries RO,MD,DE,AT,PL,NL,GB --target 1000 --enrich-top 30
+# or via the API: POST /bootstrap/runs {"countries": ["RO","MD","DE"], "target": 1000, "enrich_top_n": 30}
+```
+
+1. **Companies** come from Wikidata: companies with an official website in each country, best-known first (by
+   Wikipedia sitelinks), with industry (mapped onto the ICP vocabulary), employees, LEI and stock listing. Countries
+   with few Wikidata companies (e.g. MD) hand their shortfall to the others; `--gleif-fill` tops up with registered
+   legal entities from GLEIF (legal name and LEI only).
+2. **News**: real articles per company from Google News in the company's language (throttled, retried on 429).
+   Only articles that name the company are kept. `--gdelt` adds GDELT, which is much slower (1 request per 5 s).
+3. **Analysis**: every company × service is answered and scored. The offline heuristic is free; Claude runs when
+   `ANTHROPIC_API_KEY` is set.
+4. **Enrichment**: the `--enrich-top` best leads get the full crawl (website, ATS jobs, registries, CISA KEV, SEC).
+
+Every company keeps its registry reference (`registry_profiles.wikidata.wikidata_id` / `lei`), and every signal keeps
+its source URL, so nothing on screen is invented. Re-running is idempotent: companies are matched by domain /
+normalised name, documents by content hash, and news is not refetched within 24 h.
+
+**Scale** (measured with mocked registries): 1,002 companies pass registry load, dedupe, news, analysis and scoring
+in about 30 s with the heuristic backend. With real sources, expect about 5-10 min for Wikidata + Google News,
+depending on their rate limits. Claude analysis makes one batched call per company: plan roughly USD 40-130 per
+1,000 companies with `claude-opus-5` at medium effort, depending on how much text each company has. Results are
+cached, so re-runs only pay for companies whose documents changed.
+
 ## Architecture
 
 ```mermaid
@@ -287,6 +317,7 @@ erDiagram
 | Leads | `GET /leads?service=apa&tier=Hot,Warm&country=DE&industry=bank&min_score=&sort=score&include_outside_icp=` |
 | Companies | `GET/POST /companies`, `POST /companies/import` (CSV / Crunchbase export), `GET/PUT/DELETE /companies/{id}`, `GET /companies/{id}/events`, `GET /companies/{id}/documents`, `PUT /companies/{id}/linkedin`, `POST /companies/{id}/manual-signal`, `POST /companies/{id}/explain?service=` |
 | Sources | `GET /sources` (catalogue + last sync, status, errors, missing keys), `GET/PUT /sources/{name}` (enable, interval, reset cursor), `POST /sources/{name}/sync`, `GET /sources/not-used` |
+| Bootstrap | `POST /bootstrap/runs` (`{countries, target, gleif_fill?, news?, gdelt?, enrich_top_n?}`), `GET /dashboard/companies` (every scored company with scores and evidence in one call) |
 | Discovery | `POST /discovery/runs` (`{sources?, enrich_top_n?}`); leads carry `is_new`, `previous_score`, `origin`, `discovered_via`; `GET /leads?origin=ted&changed_since_hours=24` |
 | Runs | `POST /runs` (`{company_ids?, service_ids?, sources?, explain?}`), `GET /runs`, `GET /runs/{id}` (status, progress, log, per-source stats, tokens, cost) |
 | Outreach | `POST /companies/{id}/outreach?service=&channel=email\|linkedin\|followup&tone=formal\|consultative&language=EN\|RO\|DE` |

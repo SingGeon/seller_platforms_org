@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .base import get_json
+from .bulk import normalize_industry
 from .companies import normalize_company_name, normalize_domain
 
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
@@ -83,7 +84,7 @@ async def wikidata_profile(client, name: str, domain: str | None = None) -> Comp
     if score(best) == (0, 0, 0):
         return None
     return CompanyProfile(
-        source="wikidata", ref=best, name=p.get("label"), industry=(p["industries"] or [None])[0],
+        source="wikidata", ref=best, name=p.get("label"), industry=normalize_industry((p["industries"] or [None])[0]),
         country=p.get("iso"), employee_count=max(p["employees"]) if p["employees"] else None,
         website=p.get("website"), domain=normalize_domain(p.get("website")), extra={"industries": p["industries"][:5]},
     )
