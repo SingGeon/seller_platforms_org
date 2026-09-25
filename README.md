@@ -23,9 +23,22 @@ explains each company × service lead.
 
 ## Quick start
 
+Requirements: Python 3.11+, Node 22.22+ and a PostgreSQL server (15 or 16) with an `orange` user and an
+`orange_signals` database, e.g. `sudo -u postgres psql -c "CREATE USER orange WITH PASSWORD 'orange' CREATEDB;" -c
+"CREATE DATABASE orange_signals OWNER orange;"`.
+
 ```bash
 cp .env.example .env          # optional: add ANTHROPIC_API_KEY, NEWSAPI_KEY, SERPAPI_KEY, HUBSPOT_TOKEN
-docker compose up --build     # postgres + backend (migrates and seeds) + frontend
+python -m venv .venv && . .venv/bin/activate
+pip install -e pipeline -r backend/requirements.txt
+
+cd backend
+export DATABASE_URL=postgresql+psycopg://orange:orange@localhost:5432/orange_signals
+alembic upgrade head && python -m app.seed --sample-docs
+uvicorn app.main:app --reload   # http://localhost:8000/docs
+
+cd ../frontend                  # second terminal
+npm install && npm run dev      # http://localhost:5173
 ```
 
 - API + Swagger: http://localhost:8000/docs
@@ -38,22 +51,13 @@ documents are analysed. `python -m app.seed --sample-docs` loads sample document
 Lufthansa / DHL examples (marked `meta.sample`, URLs on the reserved `.example` domain) so the demo works end to end
 without keys.
 
-### Local development (without Docker)
+### Tests and build
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -e pipeline -r backend/requirements.txt
-cd backend
-export DATABASE_URL=postgresql+psycopg://orange:orange@localhost:5432/orange_signals
-alembic upgrade head && python -m app.seed --sample-docs
-uvicorn app.main:app --reload
-pytest -q                       # backend tests (SQLite, no network)
-cd ../pipeline && pytest -q     # pipeline tests (mocked HTTP + mocked Anthropic transport)
+cd backend && pytest -q          # backend tests (SQLite, no network)
+cd ../pipeline && pytest -q      # pipeline tests (mocked HTTP + mocked Anthropic transport)
 python calibration/run_calibration.py --provider anthropic   # signal-answer precision (needs a key)
-
-cd ../frontend                  # web app, Node 22.22+
-npm install && npm run dev      # http://localhost:5173
-npm run build                   # type-check + production build
+cd ../frontend && npm run build  # type-check + production build
 ```
 
 ## Data sources: discovery and enrichment (GIG-14)
@@ -331,7 +335,7 @@ A CRM-style dashboard for sales reps with no AI background: they see who to call
 behind every point of the score. The UI is in Romanian and follows the Orange visual style of
 [orange.md](https://www.orange.md).
 
-**Stack:** React 19, TypeScript, Vite 8, Tailwind CSS 4, React Router, lucide icons. The Docker image runs on Node 24.
+**Stack:** React 19, TypeScript, Vite 8, Tailwind CSS 4, React Router, lucide icons.
 
 ### Pages
 
@@ -357,7 +361,7 @@ behind every point of the score. The UI is in Romanian and follows the Orange vi
 The app loads its data from the backend at startup (`frontend/src/data/backend.ts` maps API responses onto the UI
 types; the pages still read through `frontend/src/data/api.ts`). If the API is unreachable, or `VITE_USE_MOCK=true`,
 it falls back to 15 fictional demo companies on the reserved `.example` domain (`frontend/src/data/mock.ts`) and shows
-a "Date demo" badge. The API base URL comes from `VITE_API_URL` (set in `docker-compose.yml`).
+a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http://localhost:8000`).
 
 | UI | Backend endpoint | Status |
 |---|---|---|
@@ -379,7 +383,7 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (set in `docker-
 | GIG-19 Target company list | To do. Crunchbase's free API no longer exists, so the list goes through `POST /companies/import` (CSV) |
 | GIG-24 LinkedIn manual validation | Partly done: "LinkedIn" button on the company record for a manual check; the form behind `PUT /companies/{id}/linkedin` is still to do |
 | GIG-31 Validate scoring on Annex 1 | To do (calibration set in `pipeline/calibration/`) |
-| GIG-33 Frontend setup | Done: React + TypeScript + Vite + Tailwind, Orange design tokens, CRM layout, routing, Dockerfile |
+| GIG-33 Frontend setup | Done: React + TypeScript + Vite + Tailwind, Orange design tokens, CRM layout, routing |
 | GIG-34 Leads page | Done on demo data |
 | GIG-35 Company record | Done on demo data (message tab is a placeholder until wired to GIG-38) |
 | GIG-36 Configuration page | UI done; changes are not saved to the API yet |
@@ -399,7 +403,7 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (set in `docker-
 | Task | Status in code |
 |---|---|
 | GIG-14 Sources, keys, limits | Source catalogue with limits/fallback (`docs/data-sources.md`), 25 discovery + 8 enrichment sources, cursors, throttling (GDELT ≥ 5 s, SEC 10 req/s), 429 backoff, `/sources` status API, scheduler, live smoke script |
-| GIG-12 Repo + Docker Compose | Structure, Dockerfiles, `docker-compose.yml` (config validated; full `up` not yet run, see below), `.env.example` |
+| GIG-12 Repo setup | Structure, `.env.example`, local run without containers (see Quick start) |
 | GIG-13 PostgreSQL schema | `backend/app/models.py`, Alembic `0001` (applied and round-tripped on Postgres 16), ERD above |
 | GIG-15 ICP | `/icp` CRUD, fit score 0–100 with partial matches, `min_fit` filter |
 | GIG-16 Signal questions | CRUD with weight / source_hint / lookback_days; APA + Cyber examples seeded; new questions are picked up by the next run (tested) |
@@ -420,10 +424,8 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (set in `docker-
 
 ### Verification status (25 Sep 2026)
 
-- **`docker compose up --build`: verified.** Postgres, migrations 0001 and 0002, seed, API, frontend and a pipeline
-  run inside Docker, with the frontend showing live API data in Chromium. (In the build sandbox, Docker Hub was
-  rate-limited, so base images came from `mirror.gcr.io`, and a local-only override injected the sandbox's TLS
-  certificate. Neither is needed on a normal machine.)
+- **Local stack: verified.** PostgreSQL 15, migrations 0001 and 0002, seed, API, frontend and a pipeline run
+  (all backend and pipeline tests pass, frontend builds).
 - **Live collectors and discovery sources: not verified.** The build sandbox's network policy rejects every external
   data host (`python -m sales_pipeline.sources.smoke` → 403 from the egress proxy for all 30 checks). They are covered
   by mocked-HTTP tests built from each API's documented response format. Run the smoke script on a machine with

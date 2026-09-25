@@ -8,7 +8,7 @@ npm run dev      # http://localhost:5173
 npm run build    # type-check + production build
 ```
 
-Requires Node 22.22+ (the Docker image uses Node 24).
+Requires Node 22.22+.
 
 ## Pages
 

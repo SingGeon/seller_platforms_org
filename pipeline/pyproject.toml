@@ -10,6 +10,7 @@ dependencies = [
   "httpx>=0.27",
   "feedparser>=6.0",
   "trafilatura>=1.12",
+  "lxml_html_clean>=0.4",  # needed by trafilatura -> justext with lxml>=5.2
   "beautifulsoup4>=4.12",
   "rapidfuzz>=3.9",
   "pypdf>=4.0",
