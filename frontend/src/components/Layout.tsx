@@ -1,6 +1,6 @@
-import { Bell, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, Search, SlidersHorizontal, UserRound, Users } from 'lucide-react'
+import { Activity, Bell, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useSession } from '../auth/session'
 import { dataError, getCompanies, getSources, isLive, isNew, timeAgo } from '../data/api'
 import { Avatar } from './ui'
@@ -108,7 +108,7 @@ function UserMenu() {
       >
         <span className="hidden text-right leading-tight md:block">
           <span className="block text-[13px] font-bold">{seller.full_name}</span>
-          <span className="block text-[11px] text-faint">{seller.role === 'admin' ? 'Administrator' : 'Vânzător'}</span>
+          <span className="block text-[11px] text-faint">{seller.role === 'admin' ? 'Administrator' : 'Sales manager'}</span>
         </span>
         <Avatar name={seller.full_name} size={32} />
         <ChevronDown size={15} aria-hidden />
@@ -139,23 +139,23 @@ const NAV = [
 const NAV_SYSTEM = [
   { to: '/config', label: 'Configurare', icon: SlidersHorizontal },
   { to: '/runs', label: 'Surse și rulări', icon: RadioTower },
-  { to: '/account', label: 'Contul meu', icon: UserRound },
 ]
 
-function NavItem({ to, label, icon: Icon, end, badge }: { to: string; label: string; icon: typeof Users; end?: boolean; badge?: number }) {
+function NavItem({ to, label, icon: Icon, end, badge, active }: { to: string; label: string; icon: typeof Users; end?: boolean; badge?: number; active?: boolean }) {
   return (
     <NavLink
       to={to}
       end={end}
-      className={({ isActive }) =>
-        `relative flex h-11 items-center gap-3 px-5 text-[14px] transition-colors ${
+      className={({ isActive: routeActive }) => {
+        const isActive = active ?? routeActive
+        return `relative flex h-11 items-center gap-3 px-5 text-[14px] transition-colors ${
           isActive ? 'bg-canvas font-bold text-ink' : 'text-ink-2 hover:bg-canvas'
         }`
-      }
+      }}
     >
-      {({ isActive }) => (
+      {({ isActive: routeActive }) => (
         <>
-          {isActive && <span className="absolute inset-y-0 left-0 w-1 bg-orange" aria-hidden />}
+          {(active ?? routeActive) && <span className="absolute inset-y-0 left-0 w-1 bg-orange" aria-hidden />}
           <Icon size={18} aria-hidden />
           <span className="flex-1">{label}</span>
           {badge ? <span className="num bg-band px-1.5 text-[12px] font-bold">{badge}</span> : null}
@@ -166,6 +166,9 @@ function NavItem({ to, label, icon: Icon, end, badge }: { to: string; label: str
 }
 
 function Sidebar() {
+  const { seller } = useSession()
+  const { pathname, search } = useLocation()
+  const accountsTab = pathname === '/account' && new URLSearchParams(search).get('tab') === 'accounts'
   const sources = getSources()
   const ok = sources.filter((s) => s.status === 'ok').length
   const active = getCompanies().filter((c) => c.stage !== 'descalificat').length
@@ -175,10 +178,20 @@ function Sidebar() {
       {NAV.map((n) => (
         <NavItem key={n.to} {...n} badge={n.to === '/leads' ? active : undefined} />
       ))}
+      {seller?.role === 'admin' && (
+        <>
+          <p className="flex items-center gap-1.5 px-5 pb-2 pt-6 text-[11px] font-bold uppercase tracking-wider text-orange-ink">
+            <ShieldCheck size={13} aria-hidden /> Administrare
+          </p>
+          <NavItem to="/admin" label="Monitorizare echipă" icon={Activity} />
+          <NavItem to="/account?tab=accounts" label="Conturi sales manageri" icon={UserPlus} active={accountsTab} />
+        </>
+      )}
       <p className="px-5 pb-2 pt-6 text-[11px] font-bold uppercase tracking-wider text-muted">Sistem</p>
       {NAV_SYSTEM.map((n) => (
         <NavItem key={n.to} {...n} />
       ))}
+      <NavItem to="/account" label="Contul meu" icon={UserRound} active={pathname === '/account' && !accountsTab} />
       <NavLink to="/runs" className="mx-4 mb-4 mt-auto block border-2 border-ink p-3 hover:bg-canvas">
         <p className="text-[11px] font-bold uppercase tracking-wider text-muted">Surse de date</p>
         <p className="mt-1 text-[22px] font-bold leading-none">

@@ -120,5 +120,3 @@ export interface ActivityEntry {
   details: Record<string, unknown>
 }
 
-export const listActivity = (sellerId: number, limit = 30) =>
-  getJson<ActivityEntry[]>(`/activity?seller_id=${sellerId}&limit=${limit}`)

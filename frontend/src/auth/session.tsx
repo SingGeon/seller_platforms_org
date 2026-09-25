@@ -3,7 +3,6 @@ import { loadData, setSeller as setDataSeller } from '../data/api'
 import {
   AuthError,
   authStatus,
-  createSeller,
   getToken,
   login as apiLogin,
   logout as apiLogout,
@@ -25,11 +24,9 @@ const DEMO_KEY = 'leadradar.demoUser'
 interface Session {
   loading: boolean
   mode: AuthMode
-  firstRun: boolean
   seller: Seller | null
   dataReady: boolean
   signIn: (email: string, password: string) => Promise<void>
-  signUp: (body: { full_name: string; email: string; password: string }) => Promise<void>
   signOut: () => Promise<void>
   updateProfile: (full_name: string) => Promise<void>
   changePassword: (password: string) => Promise<void>
@@ -69,15 +66,21 @@ const nameFromEmail = (email: string) =>
     .map((p) => p[0].toUpperCase() + p.slice(1))
     .join(' ') || 'Utilizator'
 
-function demoSeller(email: string, full_name?: string): Seller {
+/** Demo sessions: an email that starts with "admin" logs in as an administrator, anything else as a sales manager. */
+function demoSeller(email: string): Seller {
   const now = new Date().toISOString()
-  return { id: 0, email: email.trim().toLowerCase(), full_name: full_name?.trim() || nameFromEmail(email), role: 'admin', active: true, created_at: now, last_login_at: now }
+  const clean = email.trim().toLowerCase()
+  const admin = clean.startsWith('admin')
+  return {
+    id: admin ? -1 : -2, email: clean, full_name: admin ? 'Admin Orange' : nameFromEmail(email), role: admin ? 'admin' : 'seller',
+    active: true, created_at: now, last_login_at: now,
+  }
 }
 
 export const friendlyError = (err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg === 'Wrong email or password') return 'Email sau parolă greșită.'
-  if (msg.startsWith('Only an admin')) return 'Înregistrarea publică e închisă. Cere administratorului echipei să-ți creeze contul (Contul meu → Echipa).'
+  if (msg.startsWith('Only an admin') || msg === 'Admin only') return 'Doar un administrator poate face această acțiune.'
   if (msg.includes('already exists')) return 'Există deja un cont cu acest email.'
   if (msg.includes('abort')) return 'Serverul nu a răspuns la timp. Încearcă din nou.'
   return msg
@@ -86,7 +89,6 @@ export const friendlyError = (err: unknown) => {
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [mode, setMode] = useState<AuthMode>('demo')
-  const [firstRun, setFirstRun] = useState(false)
   const [seller, setSellerState] = useState<Seller | null>(null)
   const [dataReady, setDataReady] = useState(false)
 
@@ -110,7 +112,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         try {
           const status = await authStatus()
           m = status.auth_required ? 'api' : 'open'
-          setFirstRun(status.auth_required && !status.has_sellers)
         } catch {
           m = 'demo'
         }
@@ -135,20 +136,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (mode === 'api') return enter(await apiLogin(email, password), mode)
       const local = readDemo()
       const s = local && local.email === email.trim().toLowerCase() ? { ...local, last_login_at: new Date().toISOString() } : demoSeller(email)
-      writeDemo(s)
-      await enter(s, mode)
-    },
-    [mode, enter],
-  )
-
-  const signUp = useCallback(
-    async (body: { full_name: string; email: string; password: string }) => {
-      if (mode === 'api') {
-        await createSeller(body)
-        setFirstRun(false)
-        return enter(await apiLogin(body.email, body.password), mode)
-      }
-      const s = demoSeller(body.email, body.full_name)
       writeDemo(s)
       await enter(s, mode)
     },
@@ -187,8 +174,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   )
 
   const value = useMemo(
-    () => ({ loading, mode, firstRun, seller, dataReady, signIn, signUp, signOut, updateProfile, changePassword }),
-    [loading, mode, firstRun, seller, dataReady, signIn, signUp, signOut, updateProfile, changePassword],
+    () => ({ loading, mode, seller, dataReady, signIn, signOut, updateProfile, changePassword }),
+    [loading, mode, seller, dataReady, signIn, signOut, updateProfile, changePassword],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

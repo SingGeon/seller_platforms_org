@@ -14,9 +14,9 @@ Requires Node 22.22+.
 
 | Route | Page | Jira |
 |---|---|---|
-| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background. Any app URL opened while logged out comes back here and returns to that URL after login | — |
-| `/signup` | Sign-up with validation and password strength. The first account becomes admin; after that the backend only lets admins create accounts | — |
-| `/account` | Personal account — profile, password, my leads, activity log, team management (admins) | — |
+| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background and a live signal feed. There is no sign-up: sales-manager accounts are created by an admin, admin accounts directly in the database. Any app URL opened while logged out comes back here and returns to that URL after login | — |
+| `/account` | Personal account — profile, password, my leads, my activity; for admins also **Sales-manager accounts** (create, deactivate, reset password; role is always `seller`) | — |
+| `/admin` | Admin only (`role = admin`): team monitoring — KPIs, activity per day, per-seller table (last login, actions, leads, in progress, won, last action) and the filterable activity log | — |
 | `/` (logged in) | Home — KPIs, fresh signals, top leads to contact | — |
 | `/leads` | Lead list — filters (service, country, stage, new), sort, CSV export | GIG-34 |
 | `/leads/:id` | Company record — score breakdown, "why now", evidence with sources, timeline, notes | GIG-35 |
@@ -35,9 +35,10 @@ discovery run (`POST /discovery/runs`) and reloads the data when it ends.
 ## Sessions
 
 `src/auth/session.tsx` holds the session for every page. With the API up and `auth_required`, it uses the seller
-accounts (`/auth/login`, `/auth/me`, `POST /sellers`, `PUT /sellers/{id}`). With the API down, `VITE_USE_MOCK=true`
-or auth switched off, login and sign-up keep a local demo session in the browser (no password is stored) so the
-full flow can still be shown. The login background loop lives in `public/media/`.
+accounts (`/auth/login`, `/auth/me`, `POST /sellers`, `PUT /sellers/{id}`, `GET /activity`). With the API down,
+`VITE_USE_MOCK=true` or auth switched off, login keeps a local demo session in the browser (no password is stored):
+an email starting with `admin` enters as administrator, anything else as a sales manager, and the admin pages use a
+fictional demo team (`src/data/team.ts`). The login background loop lives in `public/media/`.
 
 ## Design tokens
 

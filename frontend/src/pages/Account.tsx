@@ -1,26 +1,18 @@
-import { CircleCheck, KeyRound, LogOut, Plus, UserRound } from 'lucide-react'
+import { CircleCheck, KeyRound, LogOut, UserPlus, UserRound } from 'lucide-react'
 import { type FormEvent, useEffect, useId, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
 import { STAGES, getCompanies, timeAgo } from '../data/api'
-import { type ActivityEntry, createSeller, listActivity, listSellers, type Seller, updateSeller } from '../data/client'
+import { createSeller, type Seller, updateSeller } from '../data/client'
+import { loadActivity, loadTeam, type TeamEvent } from '../data/team'
 import type { Company } from '../data/types'
 import { Avatar, Button, PageHeader, Panel, PanelTitle, ScoreMeter, StageTag, btn } from '../components/ui'
-import { Field, PasswordInput, StrengthMeter } from './Auth'
+import { EMAIL_RE, Field, PasswordInput, StrengthMeter } from '../components/forms'
 
-type Tab = 'profile' | 'security' | 'leads' | 'activity' | 'team'
+type Tab = 'profile' | 'security' | 'leads' | 'activity' | 'accounts'
 
 const fmtDate = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleDateString('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
-
-const ACTIONS: Record<string, string> = {
-  login: 'Autentificare',
-  logout: 'Ieșire din cont',
-  stage_change: 'A schimbat stadiul unui lead',
-  assign: 'A asignat un lead',
-  note: 'A adăugat o notă',
-}
-const actionLabel = (a: string) => ACTIONS[a] ?? a.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
 
 function Saved({ text }: { text: string }) {
   return (
@@ -58,8 +50,8 @@ function ProfileTab() {
       <Field label="Email" id={`${uid}-e`} hint="Emailul este identificatorul contului și nu poate fi schimbat.">
         <input id={`${uid}-e`} value={seller.email} readOnly className="h-11 w-full bg-canvas text-muted" />
       </Field>
-      <Field label="Rol" id={`${uid}-r`} hint={seller.role === 'admin' ? 'Poți gestiona echipa și configurarea.' : 'Rolul îl schimbă un administrator.'}>
-        <input id={`${uid}-r`} value={seller.role === 'admin' ? 'Administrator' : 'Vânzător'} readOnly className="h-11 w-full bg-canvas text-muted" />
+      <Field label="Rol" id={`${uid}-r`} hint={seller.role === 'admin' ? 'Poți crea conturi de sales manager și monitoriza activitatea echipei.' : 'Rolul îl stabilește un administrator.'}>
+        <input id={`${uid}-r`} value={seller.role === 'admin' ? 'Administrator' : 'Sales manager'} readOnly className="h-11 w-full bg-canvas text-muted" />
       </Field>
       <div className="flex items-center gap-4">
         <Button type="submit" variant="primary" disabled={state === 'busy' || name.trim() === seller.full_name}>
@@ -173,30 +165,31 @@ function LeadsTab() {
 
 function ActivityTab() {
   const { seller, mode } = useSession()
-  const [rows, setRows] = useState<ActivityEntry[] | null>(null)
+  const [rows, setRows] = useState<TeamEvent[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    if (mode !== 'api' || !seller) return
-    listActivity(seller.id).then(setRows).catch((e) => setError(friendlyError(e)))
+    if (!seller) return
+    loadActivity(mode, 300)
+      .then((all) => setRows(all.filter((e) => (mode === 'api' ? e.sellerId === seller.id : e.seller === seller.full_name)).slice(0, 40)))
+      .catch((e) => setError(friendlyError(e)))
   }, [mode, seller])
-  if (mode !== 'api') return <p className="max-w-[560px] bg-band px-4 py-3">Istoricul activității se citește din jurnalul serverului și apare când serverul cere autentificare.</p>
   if (error) return <p className="bg-danger-bg px-4 py-3 font-bold text-danger">{error}</p>
   if (!rows) return <p className="text-muted">Se încarcă…</p>
-  if (!rows.length) return <p className="text-muted">Nicio activitate încă.</p>
+  if (!rows.length) return <p className="text-muted">Nicio activitate înregistrată încă.</p>
   return (
     <Panel>
       <ol className="relative ml-6 border-l-2 border-line py-4">
         {rows.map((r, i) => (
           <li key={i} className="relative mb-5 pl-6 pr-5 last:mb-0">
             <span className={`absolute -left-[7px] top-1 size-3 ${i === 0 ? 'bg-orange' : 'bg-ink'}`} aria-hidden />
-            <p className="font-bold">{actionLabel(r.action)}</p>
+            <p className="font-bold">{r.label}</p>
             <p className="text-[13px] text-muted">
               {timeAgo(r.t)}
-              {r.company_id != null && (
+              {r.companyId != null && (
                 <>
                   {' · '}
-                  <Link to={`/leads/${r.company_id}`} className="underline underline-offset-2 hover:text-ink">
-                    compania #{r.company_id}
+                  <Link to={`/leads/${r.companyId}`} className="underline underline-offset-2 hover:text-ink">
+                    {getCompanies().find((c) => c.id === r.companyId)?.name ?? `compania #${r.companyId}`}
                   </Link>
                 </>
               )}
@@ -208,32 +201,40 @@ function ActivityTab() {
   )
 }
 
-function TeamTab() {
-  const { seller, mode } = useSession()
+function AccountsTab() {
+  const { mode } = useSession()
   const uid = useId()
   const [team, setTeam] = useState<Seller[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [form, setForm] = useState({ full_name: '', email: '', password: '', role: 'seller' as 'seller' | 'admin' })
+  const [form, setForm] = useState({ full_name: '', email: '', password: '' })
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const reload = () => listSellers().then(setTeam).catch((e) => setError(friendlyError(e)))
+  const live = mode === 'api'
+  const reload = () => loadTeam(mode).then(setTeam).catch((e) => setError(friendlyError(e)))
   useEffect(() => {
-    if (mode === 'api') void reload()
+    void reload()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode])
-  if (mode !== 'api') return <p className="max-w-[560px] bg-band px-4 py-3">Gestionarea echipei (conturi, roluri, resetare parolă) funcționează când serverul cere autentificare.</p>
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
     setMsg(null)
     setError(null)
-    if (!form.full_name.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email) || form.password.length < 8)
+    if (!form.full_name.trim() || !EMAIL_RE.test(form.email.trim()) || form.password.length < 8)
       return setError('Completează numele, un email valid și o parolă temporară de minim 8 caractere.')
     setBusy(true)
     try {
-      await createSeller({ ...form, full_name: form.full_name.trim(), email: form.email.trim() })
-      setMsg(`Cont creat pentru ${form.email.trim()}. Trimite-i parola temporară pe un canal sigur.`)
-      setForm({ full_name: '', email: '', password: '', role: 'seller' })
-      await reload()
+      const body = { full_name: form.full_name.trim(), email: form.email.trim().toLowerCase(), password: form.password, role: 'seller' as const }
+      if (live) {
+        await createSeller(body)
+        await reload()
+      } else {
+        if (team?.some((t) => t.email === body.email)) throw new Error('already exists')
+        const now = new Date().toISOString()
+        setTeam([...(team ?? []), { id: Date.now(), email: body.email, full_name: body.full_name, role: 'seller', active: true, created_at: now, last_login_at: null }])
+      }
+      setMsg(`Cont creat pentru ${body.email}. Trimite-i parola temporară pe un canal sigur; o poate schimba din Contul meu → Securitate.`)
+      setForm({ full_name: '', email: '', password: '' })
     } catch (err) {
       setError(friendlyError(err))
     } finally {
@@ -241,13 +242,17 @@ function TeamTab() {
     }
   }
 
-  const patch = async (s: Seller, body: Parameters<typeof updateSeller>[1], done: string) => {
+  const patch = async (s: Seller, body: { password?: string; active?: boolean }, done: string) => {
     setMsg(null)
     setError(null)
     try {
-      await updateSeller(s.id, body)
+      if (live) {
+        await updateSeller(s.id, body)
+        await reload()
+      } else if (body.active !== undefined) {
+        setTeam((t) => (t ?? []).map((x) => (x.id === s.id ? { ...x, active: body.active! } : x)))
+      }
       setMsg(done)
-      await reload()
     } catch (err) {
       setError(friendlyError(err))
     }
@@ -260,94 +265,84 @@ function TeamTab() {
     void patch(s, { password: pw }, `Parola lui ${s.full_name} a fost resetată.`)
   }
 
+  const sellers = (team ?? []).filter((s) => s.role === 'seller')
+
   return (
     <div className="space-y-6">
+      {!live && (
+        <p className="bg-band px-4 py-3 text-[14px]">Mod demo: conturile create aici rămân doar în această pagină și nu ajung pe server.</p>
+      )}
+      <Panel>
+        <PanelTitle>Creează un cont de sales manager</PanelTitle>
+        <form onSubmit={add} className="grid gap-4 p-5 md:grid-cols-3" noValidate>
+          <Field label="Nume complet" id={`${uid}-tn`}>
+            <input id={`${uid}-tn`} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="h-11 w-full" autoComplete="off" />
+          </Field>
+          <Field label="Email de serviciu" id={`${uid}-te`}>
+            <input id={`${uid}-te`} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-11 w-full" autoComplete="off" placeholder="nume@orange.md" />
+          </Field>
+          <Field label="Parolă temporară" id={`${uid}-tp`}>
+            <PasswordInput id={`${uid}-tp`} value={form.password} onChange={(v) => setForm({ ...form, password: v })} autoComplete="new-password" />
+            <StrengthMeter password={form.password} />
+          </Field>
+          <div className="flex flex-wrap items-center gap-4 md:col-span-3">
+            <Button type="submit" variant="primary" disabled={busy}>
+              <UserPlus size={16} aria-hidden /> {busy ? 'Se creează…' : 'Creează contul'}
+            </Button>
+            <p className="text-[13px] text-muted">Rolul este întotdeauna <b>sales manager</b>. Conturile de administrator se creează direct în baza de date.</p>
+          </div>
+        </form>
+      </Panel>
       {msg && <Saved text={msg} />}
       {error && <p className="bg-danger-bg px-4 py-3 text-[14px] font-bold text-danger" role="alert">{error}</p>}
       <Panel>
-        <PanelTitle>Membrii echipei</PanelTitle>
+        <PanelTitle action={<Link to="/admin" className="text-[13px] font-bold underline underline-offset-4">Monitorizare echipă</Link>}>Sales manageri ({sellers.length})</PanelTitle>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] border-collapse">
             <thead className="border-b-2 border-ink text-left text-[13px]">
               <tr>
                 <th className="px-5 py-3">Nume</th>
-                <th className="px-5 py-3">Rol</th>
+                <th className="px-5 py-3">Creat</th>
                 <th className="px-5 py-3">Ultima autentificare</th>
                 <th className="px-5 py-3">Stare</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
             <tbody>
-              {(team ?? []).map((s) => {
-                const self = s.id === seller?.id
-                return (
-                  <tr key={s.id} className="border-b border-line last:border-0">
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <Avatar name={s.full_name} />
-                        <div>
-                          <p className="font-bold">{s.full_name}{self && <span className="ml-2 text-[12px] font-normal text-muted">(tu)</span>}</p>
-                          <p className="text-[13px] text-muted">{s.email}</p>
-                        </div>
+              {sellers.map((s) => (
+                <tr key={s.id} className="border-b border-line last:border-0">
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <Avatar name={s.full_name} />
+                      <div>
+                        <p className="font-bold">{s.full_name}</p>
+                        <p className="text-[13px] text-muted">{s.email}</p>
                       </div>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <select
-                        value={s.role}
-                        disabled={self}
-                        onChange={(e) => void patch(s, { role: e.target.value as 'seller' | 'admin' }, `Rolul lui ${s.full_name} a fost schimbat.`)}
-                        className="h-9"
-                        aria-label={`Rolul lui ${s.full_name}`}
-                      >
-                        <option value="seller">Vânzător</option>
-                        <option value="admin">Administrator</option>
-                      </select>
-                    </td>
-                    <td className="px-5 py-3.5 text-[14px] text-muted">{s.last_login_at ? timeAgo(s.last_login_at) : 'niciodată'}</td>
-                    <td className="px-5 py-3.5">
-                      <span className={`px-2 py-0.5 text-[12px] font-bold ${s.active ? 'bg-ok-bg text-ok' : 'bg-band text-muted'}`}>{s.active ? 'Activ' : 'Dezactivat'}</span>
-                    </td>
-                    <td className="px-5 py-3.5 text-right">
-                      {!self && (
-                        <div className="flex justify-end gap-2">
-                          <Button size="sm" onClick={() => resetPassword(s)}>Resetează parola</Button>
-                          <Button size="sm" variant="ghost" onClick={() => void patch(s, { active: !s.active }, s.active ? `${s.full_name} a fost dezactivat.` : `${s.full_name} a fost reactivat.`)}>
-                            {s.active ? 'Dezactivează' : 'Reactivează'}
-                          </Button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 text-[14px] text-muted">{fmtDate(s.created_at)}</td>
+                  <td className="px-5 py-3.5 text-[14px] text-muted">{s.last_login_at ? timeAgo(s.last_login_at) : 'niciodată'}</td>
+                  <td className="px-5 py-3.5">
+                    <span className={`px-2 py-0.5 text-[12px] font-bold ${s.active ? 'bg-ok-bg text-ok' : 'bg-band text-muted'}`}>{s.active ? 'Activ' : 'Dezactivat'}</span>
+                  </td>
+                  <td className="px-5 py-3.5 text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" onClick={() => resetPassword(s)}>Resetează parola</Button>
+                      <Button size="sm" variant="ghost" onClick={() => void patch(s, { active: !s.active }, s.active ? `${s.full_name} a fost dezactivat.` : `${s.full_name} a fost reactivat.`)}>
+                        {s.active ? 'Dezactivează' : 'Reactivează'}
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {team && sellers.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-5 py-10 text-center text-muted">Niciun sales manager încă. Creează primul cont mai sus.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
-      </Panel>
-      <Panel>
-        <PanelTitle>Adaugă un coleg</PanelTitle>
-        <form onSubmit={add} className="grid gap-4 p-5 md:grid-cols-2" noValidate>
-          <Field label="Nume complet" id={`${uid}-tn`}>
-            <input id={`${uid}-tn`} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} className="h-11 w-full" />
-          </Field>
-          <Field label="Email" id={`${uid}-te`}>
-            <input id={`${uid}-te`} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="h-11 w-full" />
-          </Field>
-          <Field label="Parolă temporară" id={`${uid}-tp`} hint="Colegul o poate schimba din Contul meu → Securitate.">
-            <PasswordInput id={`${uid}-tp`} value={form.password} onChange={(v) => setForm({ ...form, password: v })} autoComplete="new-password" />
-          </Field>
-          <Field label="Rol" id={`${uid}-tr`}>
-            <select id={`${uid}-tr`} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'seller' | 'admin' })} className="h-11 w-full">
-              <option value="seller">Vânzător</option>
-              <option value="admin">Administrator</option>
-            </select>
-          </Field>
-          <div className="md:col-span-2">
-            <Button type="submit" variant="primary" disabled={busy}>
-              <Plus size={16} aria-hidden /> {busy ? 'Se creează…' : 'Creează contul'}
-            </Button>
-          </div>
-        </form>
       </Panel>
     </div>
   )
@@ -356,7 +351,9 @@ function TeamTab() {
 export default function Account() {
   const { seller, mode, signOut } = useSession()
   const navigate = useNavigate()
-  const [tab, setTab] = useState<Tab>('profile')
+  const [params, setParams] = useSearchParams()
+  const tab = (params.get('tab') as Tab) || 'profile'
+  const setTab = (t: Tab) => setParams(t === 'profile' ? {} : { tab: t }, { replace: true })
   if (!seller) return null
   const isAdmin = seller.role === 'admin'
   const tabs: [Tab, string][] = [
@@ -364,7 +361,7 @@ export default function Account() {
     ['security', 'Securitate'],
     ['leads', 'Lead-urile mele'],
     ['activity', 'Activitate'],
-    ...(isAdmin ? ([['team', 'Echipa']] as [Tab, string][]) : []),
+    ...(isAdmin ? ([['accounts', 'Conturi sales manageri']] as [Tab, string][]) : []),
   ]
   const initials = seller.full_name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
   const mineCount = getCompanies().filter((c) => (mode === 'api' ? c.sellerId === seller.id : c.owner === seller.full_name)).length
@@ -387,7 +384,7 @@ export default function Account() {
               <h2 className="mt-4 text-[22px] leading-tight">{seller.full_name}</h2>
               <p className="mt-1 break-all text-muted">{seller.email}</p>
               <span className={`mt-3 inline-block px-2 py-0.5 text-[12px] font-bold ${isAdmin ? 'bg-ink text-white' : 'bg-band'}`}>
-                {isAdmin ? 'Administrator' : 'Vânzător'}
+                {isAdmin ? 'Administrator' : 'Sales manager'}
               </span>
               <dl className="mt-6 grid grid-cols-[1fr_auto] gap-y-2.5 border-t border-line pt-5 text-[14px]">
                 <dt className="text-muted">Membru din</dt>
@@ -425,7 +422,7 @@ export default function Account() {
             {tab === 'security' && <SecurityTab />}
             {tab === 'leads' && <LeadsTab />}
             {tab === 'activity' && <ActivityTab />}
-            {tab === 'team' && isAdmin && <TeamTab />}
+            {tab === 'accounts' && isAdmin && <AccountsTab />}
           </div>
         </div>
       </div>
