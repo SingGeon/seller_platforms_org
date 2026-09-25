@@ -24,8 +24,10 @@ explains each company × service lead.
 ## Quick start
 
 Requirements: Python 3.11+, Node 22.22+, PostgreSQL 15/16 and MongoDB 6+ (see [Databases](#databases)).
-Create the PostgreSQL database once, e.g. `sudo -u postgres psql -c 'CREATE DATABASE "MT";'`; MongoDB creates its
-database on first write. Connection strings go in `.env` (`DATABASE_URL`, `MONGO_URI`, `MONGO_DB`).
+PostgreSQL tables live in the `LeadRadar` schema of the `MT` database: open MT in DBeaver and run
+[`docs/database/postgres_schema.sql`](docs/database/postgres_schema.sql) (Execute script, Alt+X), or create the schema
+(`CREATE SCHEMA "LeadRadar";`) and let `alembic upgrade head` build the tables. MongoDB creates its database on first
+write. Connection strings go in `.env` (`DATABASE_URL` with `?options=-csearch_path%3D%22LeadRadar%22`, `MONGO_URI`, `MONGO_DB`).
 
 ```bash
 cp .env.example .env          # set DATABASE_URL / MONGO_URI; optional: ANTHROPIC_API_KEY, NEWSAPI_KEY, SERPAPI_KEY, HUBSPOT_TOKEN
@@ -191,7 +193,7 @@ Companies, leads and runs keep **integer ids** (from the `counters` collection),
 the frontend are unchanged. There are no foreign keys across the two databases: deleting a service, question, rule or
 company removes the matching Mongo documents and the lead assignment in code.
 
-The PostgreSQL structure is also exported as plain SQL in [`docs/database/postgres_schema.sql`](docs/database/postgres_schema.sql).
+The PostgreSQL structure is also a runnable SQL script, [`docs/database/postgres_schema.sql`](docs/database/postgres_schema.sql), which creates the `LeadRadar` schema in MT (DBeaver: Execute script).
 In VS Code, `.vscode/settings.json` adds both databases to the SQLTools and MongoDB sidebars ("LeadRadar PostgreSQL (MT)",
 port 5433 on the dev machine, asks for the password; "LeadRadar MongoDB"); the recommended extensions are in `.vscode/extensions.json`.
 

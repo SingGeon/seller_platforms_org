@@ -1,45 +1,23 @@
--- PostgreSQL schema of the LeadRadar "MT" database (structure only, no data).
--- Generated with: pg_dump --schema-only --no-owner --no-privileges; the source of truth is backend/alembic/versions.
--- MongoDB collections and indexes are described in README "Databases" and created by backend/app/mongo.py.
-
+-- LeadRadar PostgreSQL structure: seller accounts, lead stage/owner/notes and configuration.
+-- Companies, documents, AI signals, alerts, scores, run logs and the LLM cache live in MongoDB
+-- (README "Databases", backend/app/mongo.py).
 --
--- PostgreSQL database dump
---
+-- Run it in DBeaver on the MT database (SQL Editor -> Execute script, Alt+X). Everything goes into the
+-- "LeadRadar" schema; the app then connects with
+--   DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/MT?options=-csearch_path%3D%22LeadRadar%22
+-- Equivalent to `alembic upgrade head` (the source of truth is backend/alembic/versions); the
+-- alembic_version row at the end tells Alembic this schema is already at revision 0003.
 
-\restrict tDx8U6WOMgypNvT9d4BHf5VTM0HeEXqLFrJ7ticOdgZsTuMXjbNI2m2RCZn0Rjf
+BEGIN;
 
--- Dumped from database version 15.19 (Debian 15.19-0+deb12u1)
--- Dumped by pg_dump version 15.19 (Debian 15.19-0+deb12u1)
+CREATE SCHEMA IF NOT EXISTS "LeadRadar";
+SET LOCAL search_path TO "LeadRadar";
 
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
-SET check_function_bodies = false;
-SET xmloption = content;
-SET client_min_messages = warning;
-SET row_security = off;
-
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
-
---
--- Name: alembic_version; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.alembic_version (
+CREATE TABLE alembic_version (
     version_num character varying(32) NOT NULL
 );
 
-
---
--- Name: disqualification_rules; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.disqualification_rules (
+CREATE TABLE disqualification_rules (
     id integer NOT NULL,
     service_id integer,
     name character varying(200) NOT NULL,
@@ -53,12 +31,7 @@ CREATE TABLE public.disqualification_rules (
     active boolean NOT NULL
 );
 
-
---
--- Name: disqualification_rules_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.disqualification_rules_id_seq
+CREATE SEQUENCE disqualification_rules_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -66,19 +39,9 @@ CREATE SEQUENCE public.disqualification_rules_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE disqualification_rules_id_seq OWNED BY disqualification_rules.id;
 
---
--- Name: disqualification_rules_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.disqualification_rules_id_seq OWNED BY public.disqualification_rules.id;
-
-
---
--- Name: icp_criteria; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.icp_criteria (
+CREATE TABLE icp_criteria (
     id integer NOT NULL,
     service_id integer NOT NULL,
     markets jsonb NOT NULL,
@@ -91,12 +54,7 @@ CREATE TABLE public.icp_criteria (
     min_fit integer NOT NULL
 );
 
-
---
--- Name: icp_criteria_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.icp_criteria_id_seq
+CREATE SEQUENCE icp_criteria_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -104,19 +62,9 @@ CREATE SEQUENCE public.icp_criteria_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE icp_criteria_id_seq OWNED BY icp_criteria.id;
 
---
--- Name: icp_criteria_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.icp_criteria_id_seq OWNED BY public.icp_criteria.id;
-
-
---
--- Name: lead_assignments; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.lead_assignments (
+CREATE TABLE lead_assignments (
     company_id integer NOT NULL,
     seller_id integer,
     stage character varying(20) NOT NULL,
@@ -124,12 +72,7 @@ CREATE TABLE public.lead_assignments (
     updated_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: scoring_config; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.scoring_config (
+CREATE TABLE scoring_config (
     id integer NOT NULL,
     icp_weight double precision NOT NULL,
     signal_weight double precision NOT NULL,
@@ -141,12 +84,7 @@ CREATE TABLE public.scoring_config (
     discovery_countries jsonb DEFAULT '["RO", "MD"]'::jsonb NOT NULL
 );
 
-
---
--- Name: scoring_config_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.scoring_config_id_seq
+CREATE SEQUENCE scoring_config_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -154,31 +92,16 @@ CREATE SEQUENCE public.scoring_config_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE scoring_config_id_seq OWNED BY scoring_config.id;
 
---
--- Name: scoring_config_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.scoring_config_id_seq OWNED BY public.scoring_config.id;
-
-
---
--- Name: seller_sessions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.seller_sessions (
+CREATE TABLE seller_sessions (
     token_hash character varying(64) NOT NULL,
     seller_id integer NOT NULL,
     created_at timestamp with time zone NOT NULL,
     expires_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: sellers; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.sellers (
+CREATE TABLE sellers (
     id integer NOT NULL,
     email character varying(320) NOT NULL,
     full_name character varying(200) NOT NULL,
@@ -189,12 +112,7 @@ CREATE TABLE public.sellers (
     last_login_at timestamp with time zone
 );
 
-
---
--- Name: sellers_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.sellers_id_seq
+CREATE SEQUENCE sellers_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -202,19 +120,9 @@ CREATE SEQUENCE public.sellers_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE sellers_id_seq OWNED BY sellers.id;
 
---
--- Name: sellers_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.sellers_id_seq OWNED BY public.sellers.id;
-
-
---
--- Name: services; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.services (
+CREATE TABLE services (
     id integer NOT NULL,
     name character varying(200) NOT NULL,
     slug character varying(100) NOT NULL,
@@ -225,12 +133,7 @@ CREATE TABLE public.services (
     created_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: services_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.services_id_seq
+CREATE SEQUENCE services_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -238,19 +141,9 @@ CREATE SEQUENCE public.services_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE services_id_seq OWNED BY services.id;
 
---
--- Name: services_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.services_id_seq OWNED BY public.services.id;
-
-
---
--- Name: signal_questions; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.signal_questions (
+CREATE TABLE signal_questions (
     id integer NOT NULL,
     service_id integer NOT NULL,
     text text NOT NULL,
@@ -263,12 +156,7 @@ CREATE TABLE public.signal_questions (
     created_at timestamp with time zone NOT NULL
 );
 
-
---
--- Name: signal_questions_id_seq; Type: SEQUENCE; Schema: public; Owner: -
---
-
-CREATE SEQUENCE public.signal_questions_id_seq
+CREATE SEQUENCE signal_questions_id_seq
     AS integer
     START WITH 1
     INCREMENT BY 1
@@ -276,19 +164,9 @@ CREATE SEQUENCE public.signal_questions_id_seq
     NO MAXVALUE
     CACHE 1;
 
+ALTER SEQUENCE signal_questions_id_seq OWNED BY signal_questions.id;
 
---
--- Name: signal_questions_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
---
-
-ALTER SEQUENCE public.signal_questions_id_seq OWNED BY public.signal_questions.id;
-
-
---
--- Name: source_state; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.source_state (
+CREATE TABLE source_state (
     name character varying(50) NOT NULL,
     enabled boolean NOT NULL,
     interval_minutes integer,
@@ -303,231 +181,82 @@ CREATE TABLE public.source_state (
     total_new_companies integer NOT NULL
 );
 
+ALTER TABLE ONLY disqualification_rules ALTER COLUMN id SET DEFAULT nextval('disqualification_rules_id_seq'::regclass);
 
---
--- Name: disqualification_rules id; Type: DEFAULT; Schema: public; Owner: -
---
+ALTER TABLE ONLY icp_criteria ALTER COLUMN id SET DEFAULT nextval('icp_criteria_id_seq'::regclass);
 
-ALTER TABLE ONLY public.disqualification_rules ALTER COLUMN id SET DEFAULT nextval('public.disqualification_rules_id_seq'::regclass);
+ALTER TABLE ONLY scoring_config ALTER COLUMN id SET DEFAULT nextval('scoring_config_id_seq'::regclass);
 
+ALTER TABLE ONLY sellers ALTER COLUMN id SET DEFAULT nextval('sellers_id_seq'::regclass);
 
---
--- Name: icp_criteria id; Type: DEFAULT; Schema: public; Owner: -
---
+ALTER TABLE ONLY services ALTER COLUMN id SET DEFAULT nextval('services_id_seq'::regclass);
 
-ALTER TABLE ONLY public.icp_criteria ALTER COLUMN id SET DEFAULT nextval('public.icp_criteria_id_seq'::regclass);
+ALTER TABLE ONLY signal_questions ALTER COLUMN id SET DEFAULT nextval('signal_questions_id_seq'::regclass);
 
-
---
--- Name: scoring_config id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.scoring_config ALTER COLUMN id SET DEFAULT nextval('public.scoring_config_id_seq'::regclass);
-
-
---
--- Name: sellers id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sellers ALTER COLUMN id SET DEFAULT nextval('public.sellers_id_seq'::regclass);
-
-
---
--- Name: services id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.services ALTER COLUMN id SET DEFAULT nextval('public.services_id_seq'::regclass);
-
-
---
--- Name: signal_questions id; Type: DEFAULT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.signal_questions ALTER COLUMN id SET DEFAULT nextval('public.signal_questions_id_seq'::regclass);
-
-
---
--- Name: alembic_version alembic_version_pkc; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.alembic_version
+ALTER TABLE ONLY alembic_version
     ADD CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num);
 
-
---
--- Name: disqualification_rules disqualification_rules_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.disqualification_rules
+ALTER TABLE ONLY disqualification_rules
     ADD CONSTRAINT disqualification_rules_pkey PRIMARY KEY (id);
 
-
---
--- Name: icp_criteria icp_criteria_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.icp_criteria
+ALTER TABLE ONLY icp_criteria
     ADD CONSTRAINT icp_criteria_pkey PRIMARY KEY (id);
 
-
---
--- Name: icp_criteria icp_criteria_service_id_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.icp_criteria
+ALTER TABLE ONLY icp_criteria
     ADD CONSTRAINT icp_criteria_service_id_key UNIQUE (service_id);
 
-
---
--- Name: lead_assignments lead_assignments_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.lead_assignments
+ALTER TABLE ONLY lead_assignments
     ADD CONSTRAINT lead_assignments_pkey PRIMARY KEY (company_id);
 
-
---
--- Name: scoring_config scoring_config_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.scoring_config
+ALTER TABLE ONLY scoring_config
     ADD CONSTRAINT scoring_config_pkey PRIMARY KEY (id);
 
-
---
--- Name: seller_sessions seller_sessions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.seller_sessions
+ALTER TABLE ONLY seller_sessions
     ADD CONSTRAINT seller_sessions_pkey PRIMARY KEY (token_hash);
 
-
---
--- Name: sellers sellers_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.sellers
+ALTER TABLE ONLY sellers
     ADD CONSTRAINT sellers_pkey PRIMARY KEY (id);
 
-
---
--- Name: services services_name_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.services
+ALTER TABLE ONLY services
     ADD CONSTRAINT services_name_key UNIQUE (name);
 
-
---
--- Name: services services_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.services
+ALTER TABLE ONLY services
     ADD CONSTRAINT services_pkey PRIMARY KEY (id);
 
-
---
--- Name: services services_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.services
+ALTER TABLE ONLY services
     ADD CONSTRAINT services_slug_key UNIQUE (slug);
 
-
---
--- Name: signal_questions signal_questions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.signal_questions
+ALTER TABLE ONLY signal_questions
     ADD CONSTRAINT signal_questions_pkey PRIMARY KEY (id);
 
-
---
--- Name: source_state source_state_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.source_state
+ALTER TABLE ONLY source_state
     ADD CONSTRAINT source_state_pkey PRIMARY KEY (name);
 
+CREATE INDEX ix_disqualification_rules_service_id ON disqualification_rules USING btree (service_id);
 
---
--- Name: ix_disqualification_rules_service_id; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX ix_lead_assignments_seller_id ON lead_assignments USING btree (seller_id);
 
-CREATE INDEX ix_disqualification_rules_service_id ON public.disqualification_rules USING btree (service_id);
+CREATE INDEX ix_seller_sessions_seller_id ON seller_sessions USING btree (seller_id);
 
+CREATE UNIQUE INDEX ix_sellers_email ON sellers USING btree (email);
 
---
--- Name: ix_lead_assignments_seller_id; Type: INDEX; Schema: public; Owner: -
---
+CREATE INDEX ix_signal_questions_service_id ON signal_questions USING btree (service_id);
 
-CREATE INDEX ix_lead_assignments_seller_id ON public.lead_assignments USING btree (seller_id);
+ALTER TABLE ONLY disqualification_rules
+    ADD CONSTRAINT disqualification_rules_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY icp_criteria
+    ADD CONSTRAINT icp_criteria_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;
 
---
--- Name: ix_seller_sessions_seller_id; Type: INDEX; Schema: public; Owner: -
---
+ALTER TABLE ONLY lead_assignments
+    ADD CONSTRAINT lead_assignments_seller_id_fkey FOREIGN KEY (seller_id) REFERENCES sellers(id) ON DELETE SET NULL;
 
-CREATE INDEX ix_seller_sessions_seller_id ON public.seller_sessions USING btree (seller_id);
+ALTER TABLE ONLY seller_sessions
+    ADD CONSTRAINT seller_sessions_seller_id_fkey FOREIGN KEY (seller_id) REFERENCES sellers(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY signal_questions
+    ADD CONSTRAINT signal_questions_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;
 
---
--- Name: ix_sellers_email; Type: INDEX; Schema: public; Owner: -
---
+INSERT INTO alembic_version (version_num) VALUES ('0003');
 
-CREATE UNIQUE INDEX ix_sellers_email ON public.sellers USING btree (email);
-
-
---
--- Name: ix_signal_questions_service_id; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX ix_signal_questions_service_id ON public.signal_questions USING btree (service_id);
-
-
---
--- Name: disqualification_rules disqualification_rules_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.disqualification_rules
-    ADD CONSTRAINT disqualification_rules_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE CASCADE;
-
-
---
--- Name: icp_criteria icp_criteria_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.icp_criteria
-    ADD CONSTRAINT icp_criteria_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE CASCADE;
-
-
---
--- Name: lead_assignments lead_assignments_seller_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.lead_assignments
-    ADD CONSTRAINT lead_assignments_seller_id_fkey FOREIGN KEY (seller_id) REFERENCES public.sellers(id) ON DELETE SET NULL;
-
-
---
--- Name: seller_sessions seller_sessions_seller_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.seller_sessions
-    ADD CONSTRAINT seller_sessions_seller_id_fkey FOREIGN KEY (seller_id) REFERENCES public.sellers(id) ON DELETE CASCADE;
-
-
---
--- Name: signal_questions signal_questions_service_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.signal_questions
-    ADD CONSTRAINT signal_questions_service_id_fkey FOREIGN KEY (service_id) REFERENCES public.services(id) ON DELETE CASCADE;
-
-
---
--- PostgreSQL database dump complete
---
-
-\unrestrict tDx8U6WOMgypNvT9d4BHf5VTM0HeEXqLFrJ7ticOdgZsTuMXjbNI2m2RCZn0Rjf
-
+COMMIT;
