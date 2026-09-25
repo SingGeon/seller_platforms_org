@@ -12,9 +12,11 @@ from sqlalchemy.orm import Session
 from sales_pipeline.sources.bulk import COUNTRY_QID
 from sales_pipeline.sources.catalog import BY_NAME, NOT_IMPLEMENTED, SOURCES
 
+from .. import mongo
 from ..bootstrap import bootstrap
 from ..discovery import get_state, run_discovery, source_keys
-from ..models import PipelineRun, SourceState
+from ..models import SourceState
+from ..mongo import MDoc
 from ..schemas import RunOut
 from .deps import get_db
 
@@ -109,17 +111,15 @@ def _404(name: str):
     raise HTTPException(404, f"Unknown source '{name}'")
 
 
-def _start(request: Request, db: Session, sources: list[str] | None, enrich_top_n: int | None) -> PipelineRun:
-    active = db.scalar(select(PipelineRun).where(PipelineRun.status.in_(["queued", "running"])).limit(1))
+def _start(request: Request, sources: list[str] | None, enrich_top_n: int | None) -> MDoc:
+    active = mongo.active_run()
     if active is not None:
         raise HTTPException(409, f"Run {active.id} is still {active.status}")
     for n in sources or []:
         spec = BY_NAME.get(n) or _404(n)
         if spec.sync is None:
             raise HTTPException(422, f"'{n}' is an enrichment source; it runs inside enrichment runs (POST /runs)")
-    run = PipelineRun(status="queued", kind="discovery", params={"sources": sources, "enrich_top_n": enrich_top_n, "trigger": "api"})
-    db.add(run)
-    db.commit()
+    run = mongo.create_run(kind="discovery", params={"sources": sources, "enrich_top_n": enrich_top_n, "trigger": "api"})
     task = asyncio.create_task(
         run_discovery(request.app.state.session_factory, run.id, sources=sources, enrich_top_n=enrich_top_n,
                       llm=request.app.state.llm_override, client=request.app.state.http_override)
@@ -139,25 +139,20 @@ class BootstrapIn(BaseModel):
 
 
 @router.post("/bootstrap/runs", response_model=RunOut, status_code=202, summary="Load a large real company universe (Wikidata/GLEIF + news + scoring)")
-async def start_bootstrap(body: BootstrapIn, request: Request, db: Session = Depends(get_db)):
+async def start_bootstrap(body: BootstrapIn, request: Request):
     countries = [c.strip().upper() for c in body.countries]
     unknown = [c for c in countries if c not in COUNTRY_QID]
     if unknown:
         raise HTTPException(422, f"Unsupported countries {unknown}; supported: {sorted(COUNTRY_QID)}")
-    active = db.scalar(select(PipelineRun).where(PipelineRun.status.in_(["queued", "running"])).limit(1))
+    active = mongo.active_run()
     if active is not None:
         raise HTTPException(409, f"Run {active.id} is still {active.status}")
-    run = PipelineRun(status="running", kind="bootstrap", params=body.model_dump(), started_at=datetime.now(timezone.utc))
-    db.add(run)
-    db.commit()
+    run = mongo.create_run(status="running", kind="bootstrap", params=body.model_dump(), started_at=datetime.now(timezone.utc))
     sf = request.app.state.session_factory
     run_id = run.id
 
     def say(msg: str) -> None:
-        with sf() as s:
-            r = s.get(PipelineRun, run_id)
-            r.log = [*(r.log or []), {"t": datetime.now(timezone.utc).isoformat(), "msg": msg}][-300:]
-            s.commit()
+        mongo.log_run(run_id, msg)
 
     async def go() -> None:
         try:
@@ -168,10 +163,7 @@ async def start_bootstrap(body: BootstrapIn, request: Request, db: Session = Dep
             status, error = "succeeded", None
         except Exception as exc:  # noqa: BLE001 - always end in a terminal state
             stats, status, error = {}, "failed", str(exc)[:2000]
-        with sf() as s:
-            r = s.get(PipelineRun, run_id)
-            r.status, r.error, r.stats, r.finished_at = status, error, stats, datetime.now(timezone.utc)
-            s.commit()
+        mongo.update(mongo.RUNS, run_id, {"status": status, "error": error, "stats": stats, "finished_at": datetime.now(timezone.utc)})
 
     task = asyncio.create_task(go())
     request.app.state.background_tasks.add(task)
@@ -180,10 +172,10 @@ async def start_bootstrap(body: BootstrapIn, request: Request, db: Session = Dep
 
 
 @router.post("/sources/{name}/sync", response_model=RunOut, status_code=202)
-async def sync_one(name: str, request: Request, db: Session = Depends(get_db)):
-    return _start(request, db, [name], 0)
+async def sync_one(name: str, request: Request):
+    return _start(request, [name], 0)
 
 
 @router.post("/discovery/runs", response_model=RunOut, status_code=202)
-async def start_discovery(body: DiscoveryIn, request: Request, db: Session = Depends(get_db)):
-    return _start(request, db, body.sources, body.enrich_top_n)
+async def start_discovery(body: DiscoveryIn, request: Request):
+    return _start(request, body.sources, body.enrich_top_n)

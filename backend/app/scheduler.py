@@ -6,28 +6,24 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from . import mongo
 from .config import get_settings
 from .discovery import due_sources, run_discovery
-from .models import PipelineRun
 
 log = logging.getLogger(__name__)
 
 
 async def tick(sf: sessionmaker, llm=None) -> int | None:
     """Run one scheduler step; returns the discovery run id when something was due."""
+    if mongo.active_run() is not None:
+        return None  # never overlap with a manual run
     with sf() as db:
-        if db.scalar(select(PipelineRun.id).where(PipelineRun.status.in_(["queued", "running"])).limit(1)):
-            return None  # never overlap with a manual run
         due = due_sources(db)
-        if not due:
-            return None
-        run = PipelineRun(status="queued", kind="discovery", params={"sources": due, "trigger": "scheduler", "enrich_top_n": 0})
-        db.add(run)
-        db.commit()
-        run_id = run.id
+    if not due:
+        return None
+    run_id = mongo.create_run(kind="discovery", params={"sources": due, "trigger": "scheduler", "enrich_top_n": 0}).id
     await run_discovery(sf, run_id, sources=due, enrich_top_n=0, llm=llm)
     return run_id
 

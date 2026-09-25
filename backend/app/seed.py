@@ -17,7 +17,8 @@ from sqlalchemy.orm import Session
 
 from sales_pipeline import Document
 
-from .models import Company, DisqualificationRule, IcpCriteria, RawDocument, Service, SignalQuestion
+from . import mongo
+from .models import DisqualificationRule, IcpCriteria, Service, SignalQuestion
 from .scoring_service import get_scoring_config, recompute_scores
 
 SERVICES = [
@@ -184,21 +185,20 @@ def seed_config(db: Session) -> None:
     db.commit()
 
 
-def seed_companies(db: Session) -> None:
+def seed_companies() -> None:
     for c in COMPANIES:
-        if db.scalar(select(Company).where(Company.domain == c["domain"])) is None:
-            db.add(Company(**c))
-    db.commit()
+        if not mongo.domain_taken(c["domain"]):
+            mongo.insert_company(c)
 
 
-def seed_sample_documents(db: Session) -> int:
+def seed_sample_documents() -> int:
     """Offline demo documents paraphrasing the public facts listed in Annex 1.
     Marked `meta.sample = true`; URLs use the reserved .example domain."""
     data = json.loads(SAMPLE_DOCS_PATH.read_text())
     now = datetime.now(timezone.utc)
     added = 0
     for entry in data:
-        company = db.scalar(select(Company).where(Company.domain == entry["domain"]))
+        company = mongo.find_one(mongo.COMPANIES, {"domain": entry["domain"]})
         if company is None:
             continue
         for d in entry["documents"]:
@@ -207,17 +207,9 @@ def seed_sample_documents(db: Session) -> int:
                 published_at=now - timedelta(days=d["days_ago"]), source=d.get("source", "annex-1"),
                 meta={"sample": True, **d.get("meta", {})},
             )
-            exists = db.scalar(select(RawDocument).where(RawDocument.company_id == company.id, RawDocument.url == doc.url))
-            if exists:
+            if mongo.find_one(mongo.DOCUMENTS, {"company_id": company.id, "url": doc.url}):
                 continue
-            db.add(
-                RawDocument(
-                    company_id=company.id, source_type=doc.source_type, url=doc.url, title=doc.title, content=doc.text,
-                    source=doc.source, published_at=doc.published_at, content_hash=doc.content_hash, meta=doc.meta,
-                )
-            )
-            added += 1
-    db.commit()
+            added += int(mongo.store_document(company.id, doc))
     return added
 
 
@@ -229,9 +221,9 @@ def main() -> None:
 
     with SessionLocal() as db:
         seed_config(db)
-        seed_companies(db)
+        seed_companies()
         if args.sample_docs:
-            print(f"sample documents added: {seed_sample_documents(db)}")
+            print(f"sample documents added: {seed_sample_documents()}")
         recompute_scores(db)
     print("seed complete")
 

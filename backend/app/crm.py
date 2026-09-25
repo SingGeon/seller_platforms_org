@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import httpx
 
-from .models import Company, LeadScore, Service
+from .models import Service
+from .mongo import MDoc
 
 HUBSPOT_API = "https://api.hubapi.com"
 NOTE_TO_COMPANY_ASSOCIATION = 190  # HubSpot-defined association type id (note -> company)
@@ -19,7 +20,7 @@ EXPORT_COLUMNS = [
 ]
 
 
-def lead_row(company: Company, service: Service, lead: LeadScore) -> dict:
+def lead_row(company: MDoc, service: Service, lead: MDoc) -> dict:
     exp = lead.explanation or {}
     row = {
         "company": company.name, "domain": company.domain or "", "country": company.country or "",
@@ -42,7 +43,7 @@ def to_csv(rows: list[dict]) -> str:
     return buf.getvalue()
 
 
-def note_html(company: Company, service: Service, lead: LeadScore) -> str:
+def note_html(company: MDoc, service: Service, lead: MDoc) -> str:
     exp = lead.explanation or {}
     items = "".join(
         f'<li><b>{s["label"]}</b>: "{s["quote"]}" ({s["date"]}) <a href="{s["url"]}">source</a></li>'
@@ -54,7 +55,7 @@ def note_html(company: Company, service: Service, lead: LeadScore) -> str:
     )
 
 
-async def push_to_hubspot(token: str, company: Company, service: Service, lead: LeadScore, client: httpx.AsyncClient | None = None) -> dict:
+async def push_to_hubspot(token: str, company: MDoc, service: Service, lead: MDoc, client: httpx.AsyncClient | None = None) -> dict:
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     own = client is None
     client = client or httpx.AsyncClient(base_url=HUBSPOT_API, timeout=20, headers=headers)

@@ -1,9 +1,10 @@
-"""PostgreSQL schema (GIG-13). See the ERD in README.md."""
+"""PostgreSQL schema: seller accounts and configuration. Companies and everything about them
+(documents, signals, events, scores, runs, LLM cache) live in MongoDB, see mongo.py."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, event, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base, JSONType
@@ -84,113 +85,6 @@ class DisqualificationRule(Base):
     service: Mapped[Service | None] = relationship(back_populates="rules")
 
 
-class Company(Base):
-    __tablename__ = "companies"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(300), index=True)
-    domain: Mapped[str | None] = mapped_column(String(300), unique=True, nullable=True)
-    industry: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    employee_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    revenue_musd: Mapped[float | None] = mapped_column(Float, nullable=True)
-    country: Mapped[str | None] = mapped_column(String(2), nullable=True)
-    market: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    description: Mapped[str] = mapped_column(Text, default="")
-    crunchbase_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    linkedin_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    careers_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    ats: Mapped[dict] = mapped_column(JSONType, default=dict)  # {"greenhouse": "slug"}
-    is_existing_client: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_competitor: Mapped[bool] = mapped_column(Boolean, default=False)
-    status: Mapped[str] = mapped_column(String(30), default="active")  # active | insolvent | acquired
-    # Manual LinkedIn validation (GIG-24): decision-makers, notes — entered by reps, never scraped.
-    linkedin_validation: Mapped[dict] = mapped_column(JSONType, default=dict)
-    # Entity resolution across sources: "GitLab Inc." and "GitLab" share one normalised name.
-    normalized_name: Mapped[str] = mapped_column(String(300), default="", index=True)
-    aliases: Mapped[list] = mapped_column(JSONType, default=list)
-    business_model: Mapped[str] = mapped_column(String(10), default="unknown")  # b2b | b2c | mixed | unknown
-    # Where the company came from: "manual", "import" or a discovery source name, plus first signal.
-    origin: Mapped[str] = mapped_column(String(50), default="manual")
-    discovered_via: Mapped[list] = mapped_column(JSONType, default=list)  # [{source, signal, at}]
-    registry_profiles: Mapped[dict] = mapped_column(JSONType, default=dict)  # {wikidata: {...}, gleif: {...}}
-    tech_stack: Mapped[list] = mapped_column(JSONType, default=list)
-    enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class RawDocument(Base):
-    __tablename__ = "raw_documents"
-    __table_args__ = (UniqueConstraint("company_id", "content_hash", name="uq_raw_documents_company_hash"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
-    source_type: Mapped[str] = mapped_column(String(20), index=True)  # news | web | jobs | crunchbase | manual
-    url: Mapped[str] = mapped_column(String(2000))
-    title: Mapped[str] = mapped_column(Text, default="")
-    content: Mapped[str] = mapped_column(Text, default="")
-    source: Mapped[str] = mapped_column(String(300), default="")
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    content_hash: Mapped[str] = mapped_column(String(64))
-    meta: Mapped[dict] = mapped_column(JSONType, default=dict)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class Signal(Base):
-    __tablename__ = "signals"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
-    service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id", ondelete="CASCADE"), nullable=True, index=True)
-    question_id: Mapped[int | None] = mapped_column(ForeignKey("signal_questions.id", ondelete="CASCADE"), nullable=True)
-    rule_id: Mapped[int | None] = mapped_column(ForeignKey("disqualification_rules.id", ondelete="CASCADE"), nullable=True)
-    origin: Mapped[str] = mapped_column(String(20), default="question")  # question | rule | manual
-    answer: Mapped[str] = mapped_column(String(10))  # yes | no | unknown
-    confidence: Mapped[float] = mapped_column(Float, default=0.0)
-    evidence: Mapped[list] = mapped_column(JSONType, default=list)  # [{quote, url, date}]
-    reasoning: Mapped[str] = mapped_column(Text, default="")
-    signal_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    run_id: Mapped[int | None] = mapped_column(ForeignKey("pipeline_runs.id", ondelete="SET NULL"), nullable=True)
-    created_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
-
-
-class CompanyEvent(Base):
-    __tablename__ = "company_events"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
-    event_type: Mapped[str] = mapped_column(String(40), index=True)
-    subtype: Mapped[str] = mapped_column(String(100), default="")
-    title: Mapped[str] = mapped_column(Text)
-    summary: Mapped[str] = mapped_column(Text, default="")
-    event_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    url: Mapped[str] = mapped_column(String(2000))
-    entities: Mapped[list] = mapped_column(JSONType, default=list)
-    polarity: Mapped[str] = mapped_column(String(10), default="neutral")
-    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
-class LeadScore(Base):
-    __tablename__ = "lead_scores"
-    __table_args__ = (UniqueConstraint("company_id", "service_id", name="uq_lead_scores_company_service"),)
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
-    service_id: Mapped[int] = mapped_column(ForeignKey("services.id", ondelete="CASCADE"), index=True)
-    icp_score: Mapped[float] = mapped_column(Float, default=0.0)
-    signal_score: Mapped[float] = mapped_column(Float, default=0.0)
-    final_score: Mapped[float] = mapped_column(Float, default=0.0, index=True)
-    tier: Mapped[str] = mapped_column(String(20), default="Cold")  # Hot | Warm | Cold | Disqualified
-    disqualified: Mapped[bool] = mapped_column(Boolean, default=False)
-    disqualification_reasons: Mapped[list] = mapped_column(JSONType, default=list)
-    breakdown: Mapped[dict] = mapped_column(JSONType, default=dict)
-    explanation: Mapped[dict] = mapped_column(JSONType, default=dict)  # {summary, top_signals, recommendation}
-    # Score movement for the dashboard arrows: last different score and when it changed.
-    previous_score: Mapped[float | None] = mapped_column(Float, nullable=True)
-    score_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-
 class ScoringConfig(Base):
     """Single-row table with the tunable scoring parameters (GIG-29)."""
 
@@ -208,22 +102,6 @@ class ScoringConfig(Base):
     undated_recency: Mapped[float] = mapped_column(Float, default=0.5)
     # Markets that discovery sources search (ISO-2); "change the country" = edit this list.
     discovery_countries: Mapped[list] = mapped_column(JSONType, default=lambda: ["RO", "MD"])
-
-
-class PipelineRun(Base):
-    __tablename__ = "pipeline_runs"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    status: Mapped[str] = mapped_column(String(20), default="queued")  # queued | running | succeeded | failed
-    kind: Mapped[str] = mapped_column(String(20), default="enrichment")  # enrichment | discovery
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    params: Mapped[dict] = mapped_column(JSONType, default=dict)
-    progress: Mapped[dict] = mapped_column(JSONType, default=dict)  # {companies_total, companies_done, stage}
-    stats: Mapped[dict] = mapped_column(JSONType, default=dict)  # per-source counts, tokens, cost
-    log: Mapped[list] = mapped_column(JSONType, default=list)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SourceState(Base):
@@ -245,19 +123,46 @@ class SourceState(Base):
     total_new_companies: Mapped[int] = mapped_column(Integer, default=0)
 
 
-class LlmCache(Base):
-    """Persistent LLM response cache keyed on (task, model, company, question, docs) (GIG-28)."""
+class Seller(Base):
+    """A sales rep (or admin) account. Passwords are stored as PBKDF2-SHA256 hashes."""
 
-    __tablename__ = "llm_cache"
+    __tablename__ = "sellers"
 
-    key: Mapped[str] = mapped_column(String(64), primary_key=True)
-    value: Mapped[object] = mapped_column(JSONType)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(300))
+    role: Mapped[str] = mapped_column(String(20), default="seller")  # seller | admin
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    sessions: Mapped[list["SellerSession"]] = relationship(back_populates="seller", cascade="all, delete-orphan")
 
 
-@event.listens_for(Company, "before_insert")
-@event.listens_for(Company, "before_update")
-def _set_normalized_name(mapper, connection, target: Company) -> None:  # noqa: ARG001
-    from sales_pipeline.sources.companies import normalize_company_name
+class SellerSession(Base):
+    """Bearer token issued at login (only its SHA-256 is stored)."""
 
-    target.normalized_name = normalize_company_name(target.name)
+    __tablename__ = "seller_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    seller_id: Mapped[int] = mapped_column(ForeignKey("sellers.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    seller: Mapped[Seller] = relationship(back_populates="sessions")
+
+
+class LeadAssignment(Base):
+    """CRM state of a company for the sales team: pipeline stage, owner and notes.
+    `company_id` points to a MongoDB `companies` document (no FK across databases)."""
+
+    __tablename__ = "lead_assignments"
+
+    company_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    seller_id: Mapped[int | None] = mapped_column(ForeignKey("sellers.id", ondelete="SET NULL"), nullable=True, index=True)
+    stage: Mapped[str] = mapped_column(String(20), default="nou")  # nou | calificat | contactat | negociere | castigat | descalificat
+    notes: Mapped[list] = mapped_column(JSONType, default=list)  # [{t, seller_id, author, text}]
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+    seller: Mapped[Seller | None] = relationship()

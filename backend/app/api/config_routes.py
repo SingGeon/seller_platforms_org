@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from .. import mongo
 from ..models import DisqualificationRule, IcpCriteria, Service, SignalQuestion
 from ..schemas import (
     IcpIn, IcpOut, QuestionIn, QuestionOut, RuleIn, RuleOut, ScoringConfigIn, ScoringConfigOut, ServiceIn, ServiceOut,
@@ -51,8 +52,11 @@ def update_service(service_id: int, body: ServiceIn, db: Session = Depends(get_d
 
 @router.delete("/services/{service_id}", status_code=204, tags=["config"])
 def delete_service(service_id: int, db: Session = Depends(get_db)):
-    db.delete(get_or_404(db, Service, service_id))
+    svc = get_or_404(db, Service, service_id)
+    question_ids = [q.id for q in svc.questions]
+    db.delete(svc)
     db.commit()
+    mongo.forget_service(service_id, question_ids)
     return Response(status_code=204)
 
 
@@ -124,11 +128,7 @@ def update_question(service_id: int, question_id: int, body: QuestionIn, db: Ses
     db.commit()
     if text_changed:
         # Old answers were for a different question; drop them so the next run re-asks.
-        from ..models import Signal
-
-        for s in db.scalars(select(Signal).where(Signal.question_id == question_id, Signal.origin != "manual")):
-            db.delete(s)
-        db.commit()
+        mongo.forget_question(question_id, keep_manual=True)
     recompute_scores(db, service_ids=[service_id])
     return q
 
@@ -140,6 +140,7 @@ def delete_question(service_id: int, question_id: int, db: Session = Depends(get
         raise HTTPException(404, "Question does not belong to this service")
     db.delete(q)
     db.commit()
+    mongo.forget_question(question_id)
     recompute_scores(db, service_ids=[service_id])
     return Response(status_code=204)
 
@@ -207,6 +208,7 @@ def update_rule(rule_id: int, body: RuleIn, db: Session = Depends(get_db)):
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     db.delete(get_or_404(db, DisqualificationRule, rule_id))
     db.commit()
+    mongo.forget_rule(rule_id)
     recompute_scores(db)
     return Response(status_code=204)
 

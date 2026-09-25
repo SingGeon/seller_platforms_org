@@ -25,8 +25,10 @@ from sales_pipeline.sources.base import DiscoveredItem, SourceContext
 from sales_pipeline.sources.catalog import BY_NAME, SOURCES
 from sales_pipeline.sources.companies import normalize_company_name, normalize_domain
 
+from . import mongo
 from .config import get_settings
-from .models import Company, IcpCriteria, LeadScore, PipelineRun, RawDocument, Service, SignalQuestion, SourceState
+from .models import IcpCriteria, Service, SignalQuestion, SourceState
+from .mongo import MDoc
 
 log = logging.getLogger(__name__)
 EXTRACT_BATCH = 25
@@ -95,46 +97,41 @@ def get_state(db: Session, name: str) -> SourceState:
 # ------------------------------------------------------------------ entity resolution
 
 
-def resolve_company(db: Session, item: DiscoveredItem, source: str) -> tuple[Company, bool]:
+def resolve_company(item: DiscoveredItem, source: str) -> tuple[MDoc, bool]:
     domain = normalize_domain(item.company_domain)
     norm = normalize_company_name(item.company_name)
     company = None
     if domain:
-        company = db.scalar(select(Company).where(Company.domain == domain))
+        company = mongo.find_one(mongo.COMPANIES, {"domain": domain})
     if company is None and norm:
-        company = db.scalar(select(Company).where(Company.normalized_name == norm).order_by(Company.id).limit(1))
+        company = mongo.find_one(mongo.COMPANIES, {"normalized_name": norm}, sort=[("_id", 1)])
     trace = {"source": source, "signal": item.signal, "at": utcnow().isoformat()}
     if company is None:
-        company = Company(
-            name=item.company_name.strip()[:300], domain=domain, country=(item.company_country or None),
-            industry=item.company_industry, origin=source, discovered_via=[trace], aliases=[],
-        )
-        db.add(company)
-        db.flush()
+        company = mongo.insert_company({
+            "name": item.company_name.strip()[:300], "domain": domain, "country": (item.company_country or None),
+            "industry": item.company_industry, "origin": source, "discovered_via": [trace], "aliases": [],
+        })
         return company, True
     # Fill gaps only; never overwrite what a rep or a registry already set.
-    if domain and not company.domain and db.scalar(select(Company.id).where(Company.domain == domain)) is None:
-        company.domain = domain
-    company.country = company.country or item.company_country
-    company.industry = company.industry or item.company_industry
+    fields: dict[str, Any] = {}
+    if domain and not company.domain and not mongo.domain_taken(domain):
+        fields["domain"] = domain
+    if not company.country and item.company_country:
+        fields["country"] = item.company_country
+    if not company.industry and item.company_industry:
+        fields["industry"] = item.company_industry
     if item.company_name != company.name and item.company_name not in (company.aliases or []):
-        company.aliases = [*(company.aliases or []), item.company_name][:20]
+        fields["aliases"] = [*(company.aliases or []), item.company_name][:20]
     if not any(t.get("source") == source and t.get("signal") == item.signal for t in company.discovered_via or []):
-        company.discovered_via = [*(company.discovered_via or []), trace][-20:]
+        fields["discovered_via"] = [*(company.discovered_via or []), trace][-20:]
+    if fields:
+        mongo.update_company(company.id, fields)
+        company.update(fields)
     return company, False
 
 
-def store_document(db: Session, company_id: int, doc: Document) -> bool:
-    h = doc.content_hash
-    if db.scalar(select(RawDocument.id).where(RawDocument.company_id == company_id, RawDocument.content_hash == h)):
-        return False
-    db.add(
-        RawDocument(
-            company_id=company_id, source_type=doc.source_type, url=doc.url[:2000], title=doc.title, content=doc.text,
-            source=doc.source[:300], published_at=doc.published_at, content_hash=h, meta=doc.meta,
-        )
-    )
-    return True
+def store_document(company_id: int, doc: Document) -> bool:
+    return mongo.store_document(company_id, doc)
 
 
 async def resolve_unresolved(llm: LLMBackend, docs: list[Document]) -> list[DiscoveredItem]:
@@ -209,15 +206,15 @@ async def sync_source(sf: sessionmaker, name: str, llm: LLMBackend, *, client: h
 
     touched: set[int] = set()
     new_companies = new_docs = 0
+    for item in items:
+        if not item.company_name.strip() or not item.document.url:
+            continue
+        company, created = resolve_company(item, name)
+        new_companies += int(created)
+        if store_document(company.id, item.document):
+            new_docs += 1
+            touched.add(company.id)
     with sf() as db:
-        for item in items:
-            if not item.company_name.strip() or not item.document.url:
-                continue
-            company, created = resolve_company(db, item, name)
-            new_companies += int(created)
-            if store_document(db, company.id, item.document):
-                new_docs += 1
-                touched.add(company.id)
         state = get_state(db, name)
         state.cursor = result.cursor
         state.last_status = "ok"
@@ -252,14 +249,9 @@ def due_sources(db: Session, now: datetime | None = None) -> list[str]:
 # ------------------------------------------------------------------ discovery run
 
 
-def _log(sf: sessionmaker, run_id: int, message: str, **progress: Any) -> None:
+def _log(run_id: int, message: str, **progress: Any) -> None:
     log.info("discovery run %s: %s", run_id, message)
-    with sf() as db:
-        run = db.get(PipelineRun, run_id)
-        run.log = [*(run.log or []), {"t": utcnow().isoformat(), "msg": message}][-300:]
-        if progress:
-            run.progress = {**(run.progress or {}), **progress}
-        db.commit()
+    mongo.log_run(run_id, message, keep=300, **progress)
 
 
 async def run_discovery(
@@ -278,12 +270,7 @@ async def run_discovery(
     enrich_top_n = get_settings().enrich_top_n if enrich_top_n is None else enrich_top_n
     started = time.monotonic()
     names = sources or [s.name for s in SOURCES if s.sync is not None]
-    with sf() as db:
-        run = db.get(PipelineRun, run_id)
-        run.status = "running"
-        run.started_at = utcnow()
-        run.progress = {"stage": "discovery", "sources_total": len(names), "sources_done": 0}
-        db.commit()
+    mongo.update(mongo.RUNS, run_id, {"status": "running", "started_at": utcnow(), "progress": {"stage": "discovery", "sources_total": len(names), "sources_done": 0}})
     results: list[dict] = []
     touched: set[int] = set()
     try:
@@ -292,58 +279,45 @@ async def run_discovery(
             touched.update(res.pop("touched_company_ids", []))
             results.append(res)
             detail = res.get("error") or res.get("missing") or f"{res.get('new_companies', 0)} new companies, {res.get('new_documents', 0)} new documents"
-            _log(sf, run_id, f"{name}: {res['status']} ({detail})", sources_done=i)
+            _log(run_id, f"{name}: {res['status']} ({detail})", sources_done=i)
 
         children: dict[str, int] = {}
         if touched:
             # 1) analyse every touched company on the documents discovery just stored (cheap, cached)
-            with sf() as db:
-                analysis = PipelineRun(status="queued", kind="enrichment", params={"parent_run": run_id, "stage": "analysis"})
-                db.add(analysis)
-                db.commit()
-                children["analysis"] = analysis.id
-            _log(sf, run_id, f"Analysing {len(touched)} touched companies (run {analysis.id})", stage="analysis")
+            analysis = mongo.create_run(kind="enrichment", params={"parent_run": run_id, "stage": "analysis"})
+            children["analysis"] = analysis.id
+            _log(run_id, f"Analysing {len(touched)} touched companies (run {analysis.id})", stage="analysis")
             await execute_run(sf, analysis.id, company_ids=sorted(touched), sources=(), llm=llm, explain=False)
 
             # 2) full enrichment for the best new/changed leads that pass the ICP and rules
             if enrich_top_n > 0:
-                with sf() as db:
-                    best: dict[int, float] = {}
-                    for lead in db.scalars(select(LeadScore).where(LeadScore.company_id.in_(touched), LeadScore.disqualified.is_(False))):
-                        if (lead.breakdown or {}).get("outside_icp"):
-                            continue
-                        best[lead.company_id] = max(best.get(lead.company_id, 0.0), lead.final_score)
-                    top = [cid for cid, _ in sorted(best.items(), key=lambda kv: -kv[1])[:enrich_top_n]]
-                    if top:
-                        enrich = PipelineRun(status="queued", kind="enrichment", params={"parent_run": run_id, "stage": "enrichment"})
-                        db.add(enrich)
-                        db.commit()
-                        children["enrichment"] = enrich.id
+                best: dict[int, float] = {}
+                for lead in mongo.find(mongo.LEAD_SCORES, {"company_id": {"$in": sorted(touched)}, "disqualified": False}):
+                    if (lead.breakdown or {}).get("outside_icp"):
+                        continue
+                    best[lead.company_id] = max(best.get(lead.company_id, 0.0), lead.final_score)
+                top = [cid for cid, _ in sorted(best.items(), key=lambda kv: -kv[1])[:enrich_top_n]]
                 if top:
-                    _log(sf, run_id, f"Enriching top {len(top)} leads (run {children['enrichment']})", stage="enrichment")
+                    children["enrichment"] = mongo.create_run(kind="enrichment", params={"parent_run": run_id, "stage": "enrichment"}).id
+                if top:
+                    _log(run_id, f"Enriching top {len(top)} leads (run {children['enrichment']})", stage="enrichment")
                     await execute_run(sf, children["enrichment"], company_ids=top, sources=ENRICH_SOURCES, llm=llm)
 
-        with sf() as db:
-            run = db.get(PipelineRun, run_id)
-            ok = [r for r in results if r["status"] == "ok"]
-            run.status = "succeeded" if ok or not results else "failed"
-            run.finished_at = utcnow()
-            run.progress = {**(run.progress or {}), "stage": "done"}
-            run.stats = {
+        ok = [r for r in results if r["status"] == "ok"]
+        mongo.update(mongo.RUNS, run_id, {
+            "status": "succeeded" if ok or not results else "failed",
+            "finished_at": utcnow(),
+            "progress.stage": "done",
+            "stats": {
                 "duration_seconds": round(time.monotonic() - started, 1),
                 "sources": results,
                 "new_companies": sum(r.get("new_companies", 0) for r in results),
                 "new_documents": sum(r.get("new_documents", 0) for r in results),
                 "touched_companies": len(touched),
                 "child_runs": children,
-            }
-            db.commit()
-        _log(sf, run_id, f"Finished in {time.monotonic() - started:.1f}s")
+            },
+        })
+        _log(run_id, f"Finished in {time.monotonic() - started:.1f}s")
     except Exception as exc:  # noqa: BLE001 - a run must always end in a terminal state
         log.exception("discovery run %s failed", run_id)
-        with sf() as db:
-            run = db.get(PipelineRun, run_id)
-            run.status = "failed"
-            run.error = str(exc)[:2000]
-            run.finished_at = utcnow()
-            db.commit()
+        mongo.update(mongo.RUNS, run_id, {"status": "failed", "error": str(exc)[:2000], "finished_at": utcnow()})

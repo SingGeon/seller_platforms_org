@@ -16,24 +16,23 @@ explains each company × service lead.
 
 | Path | What |
 |---|---|
-| `backend/` | FastAPI REST API, PostgreSQL models + Alembic migrations, scoring engine, run orchestration, outreach, CRM export |
+| `backend/` | FastAPI REST API, PostgreSQL models + Alembic migrations (sellers, config), MongoDB store (companies, AI data, logs), scoring engine, run orchestration, outreach, CRM export |
 | `pipeline/` | `sales_pipeline` package: collectors (news / web / jobs), LangGraph signal-extraction graph, LLM backends, prompts, calibration set |
 | `frontend/` | React + TypeScript + Vite + Tailwind CRM dashboard (GIG-33 to GIG-37) — runs on demo data for now, see `frontend/README.md` |
 | `infra/` | Deployment notes / manifests |
 
 ## Quick start
 
-Requirements: Python 3.11+, Node 22.22+ and a PostgreSQL server (15 or 16) with an `orange` user and an
-`orange_signals` database, e.g. `sudo -u postgres psql -c "CREATE USER orange WITH PASSWORD 'orange' CREATEDB;" -c
-"CREATE DATABASE orange_signals OWNER orange;"`.
+Requirements: Python 3.11+, Node 22.22+, PostgreSQL 15/16 and MongoDB 6+ (see [Databases](#databases)).
+Create the PostgreSQL database once, e.g. `sudo -u postgres psql -c 'CREATE DATABASE "MT";'`; MongoDB creates its
+database on first write. Connection strings go in `.env` (`DATABASE_URL`, `MONGO_URI`, `MONGO_DB`).
 
 ```bash
-cp .env.example .env          # optional: add ANTHROPIC_API_KEY, NEWSAPI_KEY, SERPAPI_KEY, HUBSPOT_TOKEN
+cp .env.example .env          # set DATABASE_URL / MONGO_URI; optional: ANTHROPIC_API_KEY, NEWSAPI_KEY, SERPAPI_KEY, HUBSPOT_TOKEN
 python -m venv .venv && . .venv/bin/activate
 pip install -e pipeline -r backend/requirements.txt
 
 cd backend
-export DATABASE_URL=postgresql+psycopg://orange:orange@localhost:5432/orange_signals
 alembic upgrade head && python -m app.seed --sample-docs
 uvicorn app.main:app --reload   # http://localhost:8000/docs
 
@@ -44,6 +43,7 @@ npm install && npm run dev      # http://localhost:5173
 - API + Swagger: http://localhost:8000/docs
 - Frontend: http://localhost:5173
 - Start a run: `curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{}'`
+- First seller account (becomes admin): `curl -X POST localhost:8000/sellers -H 'content-type: application/json' -d '{"email":"you@company.md","full_name":"Your Name","password":"at-least-8-chars"}'`
 
 **Offline mode:** without `ANTHROPIC_API_KEY` the pipeline uses a deterministic keyword backend. It never produces
 a false "yes", but it misses a lot. With `OFFLINE_COLLECT=true` nothing is fetched from the internet and only stored
@@ -54,7 +54,7 @@ without keys.
 ### Tests and build
 
 ```bash
-cd backend && pytest -q          # backend tests (SQLite, no network)
+cd backend && pytest -q          # backend tests (SQLite + a throwaway MongoDB database per test, no network)
 cd ../pipeline && pytest -q      # pipeline tests (mocked HTTP + mocked Anthropic transport)
 python calibration/run_calibration.py --provider anthropic   # signal-answer precision (needs a key)
 cd ../frontend && npm run build  # type-check + production build
@@ -135,16 +135,18 @@ flowchart LR
     M[Manual: CSV / Crunchbase import, LinkedIn validation, manual signals]
   end
   Sources --> C[Collectors → common Document, dedupe by URL + title, content hash]
-  C --> DB[(PostgreSQL raw_documents)]
+  C --> DB[(MongoDB documents)]
   DB --> G
   subgraph G[LangGraph]
     L[load_context] --> R[relevance_filter<br/>lexical, per question] --> A[answer_questions<br/>Claude, batched, JSON schema] --> E[detect_events<br/>small model] --> AG[aggregate]
   end
   A -. quotes verified against sources .-> A
-  AG --> S[(signals, company_events)]
+  AG --> S[(MongoDB signals, company_events)]
   S --> SC[Scoring engine<br/>ICP fit + weighted signals + rules]
-  SC --> LS[(lead_scores + breakdown + why-now)]
+  CFG[(PostgreSQL<br/>ICP, questions, rules, weights)] --> SC
+  SC --> LS[(MongoDB lead_scores + breakdown + why-now)]
   LS --> API[FastAPI] --> UI[React dashboard]
+  SEL[(PostgreSQL<br/>sellers, stage, owner, notes)] --- API
   API --> CRM[HubSpot / CSV]
 ```
 
@@ -157,7 +159,7 @@ flowchart LR
 4. **detect_events**: `claude-haiku-4-5` classifies news and web passages into `security_incident`, `leadership_change`, `tech_stack`, `compliance_event` and `corporate_event` (with polarity), which builds the company timeline.
 5. **aggregate**: hands results to the backend, which stores only new or changed signals. Manual signals from reps are never overwritten.
 
-Cost and speed (GIG-28): responses are cached in `llm_cache` by (task, model, company, question, passages), so re-runs cost nothing unless the data changed. Companies run in parallel behind a semaphore, and LLM calls share a concurrency limit. Tokens and estimated USD cost are recorded on each `pipeline_runs` row.
+Cost and speed (GIG-28): responses are cached in the MongoDB `llm_cache` collection by (task, model, company, question, passages), so re-runs cost nothing unless the data changed. Companies run in parallel behind a semaphore, and LLM calls share a concurrency limit. Tokens and estimated USD cost are recorded on each `pipeline_runs` document, next to the run log.
 
 ### Scoring (`backend/app/scoring/engine.py`)
 
@@ -175,21 +177,29 @@ tier: Hot ≥70, Warm 40–69, Cold <40, Disqualified if a hard rule matches
 - Every score has a **breakdown**: points per signal and event (for the bar chart), ICP components, top 3 signals with source links, a recommendation (`contact now` / `nurture` / `monitor` / `exclude`) and a 2–3 sentence "why now" summary generated only from the evidence-backed signals.
 - Scores are pure functions of stored data. Every configuration change (ICP, questions, rules, weights) recomputes them instantly, with no LLM call.
 
-## Database (ERD)
+## Databases
+
+Two databases, each holding what it is best at:
+
+| | PostgreSQL (`DATABASE_URL`) | MongoDB (`MONGO_URI` / `MONGO_DB`) |
+|---|---|---|
+| What | Seller accounts and the relational configuration that sales and admins edit | Companies and everything collected or inferred about them, AI output and logs |
+| Tables / collections | `sellers`, `seller_sessions`, `lead_assignments`, `services`, `icp_criteria`, `signal_questions`, `disqualification_rules`, `scoring_config`, `source_state` | `companies`, `documents`, `signals`, `company_events` (alerts), `lead_scores`, `pipeline_runs` (with log), `llm_cache`, `counters` |
+| Schema | Alembic migrations (`backend/alembic/versions`) | Indexes created on startup (`backend/app/mongo.py`) |
+
+Companies, leads and runs keep **integer ids** (from the `counters` collection), so URLs such as `/companies/12` and
+the frontend are unchanged. There are no foreign keys across the two databases: deleting a service, question, rule or
+company removes the matching Mongo documents and the lead assignment in code.
+
+### PostgreSQL (ERD)
 
 ```mermaid
 erDiagram
   services ||--o| icp_criteria : has
   services ||--o{ signal_questions : has
   services ||--o{ disqualification_rules : "has (NULL = global)"
-  companies ||--o{ raw_documents : collected
-  companies ||--o{ signals : answered
-  companies ||--o{ company_events : timeline
-  companies ||--o{ lead_scores : scored
-  services ||--o{ lead_scores : for
-  signal_questions ||--o{ signals : answers
-  disqualification_rules ||--o{ signals : "llm_question answers"
-  pipeline_runs ||--o{ signals : produced
+  sellers ||--o{ seller_sessions : "logged in"
+  sellers ||--o{ lead_assignments : owns
 
   services {
     int id PK
@@ -206,8 +216,6 @@ erDiagram
     jsonb countries
     int employee_min
     int employee_max
-    float revenue_min
-    float revenue_max
     int min_fit
   }
   signal_questions {
@@ -230,84 +238,52 @@ erDiagram
     text question
     float min_confidence
   }
-  companies {
-    int id PK
-    string name
-    string domain
-    string industry
-    int employee_count
-    string country
-    string market
-    string crunchbase_url
-    string linkedin_url
-    jsonb ats
-    bool is_existing_client
-    bool is_competitor
-    jsonb linkedin_validation
-  }
-  raw_documents {
-    int id PK
-    int company_id FK
-    string source_type
-    string url
-    text content
-    timestamptz published_at
-    string content_hash
-    jsonb meta
-  }
-  signals {
-    int id PK
-    int company_id FK
-    int question_id FK
-    int rule_id FK
-    string origin
-    string answer
-    float confidence
-    jsonb evidence
-    timestamptz signal_date
-  }
-  company_events {
-    int id PK
-    int company_id FK
-    string event_type
-    string title
-    timestamptz event_date
-    string url
-    string polarity
-  }
-  lead_scores {
-    int id PK
-    int company_id FK
-    int service_id FK
-    float icp_score
-    float signal_score
-    float final_score
-    string tier
-    jsonb breakdown
-    jsonb explanation
-  }
   scoring_config {
     int id PK
     float icp_weight
     float signal_weight
     float hot_threshold
     float warm_threshold
-    jsonb weight_values
-    jsonb recency_buckets
+    jsonb discovery_countries
   }
-  pipeline_runs {
+  source_state {
+    string name PK
+    bool enabled
+    jsonb cursor
+    string last_status
+  }
+  sellers {
     int id PK
-    string status
-    jsonb params
-    jsonb progress
-    jsonb stats
-    jsonb log
+    string email
+    string full_name
+    string password_hash
+    string role
+    bool active
   }
-  llm_cache {
-    string key PK
-    jsonb value
+  seller_sessions {
+    string token_hash PK
+    int seller_id FK
+    timestamptz expires_at
+  }
+  lead_assignments {
+    int company_id PK "Mongo companies._id"
+    int seller_id FK
+    string stage
+    jsonb notes
   }
 ```
+
+### MongoDB collections
+
+| Collection | Key fields | Indexes |
+|---|---|---|
+| `companies` | `name`, `domain`, `normalized_name`, `industry`, `country`, `employee_count`, `origin`, `discovered_via`, `registry_profiles`, `tech_stack`, `linkedin_validation` | unique `domain`, `normalized_name`, (`country`, `origin`) |
+| `documents` | `company_id`, `source_type`, `url`, `title`, `content`, `published_at`, `content_hash`, `meta` | unique (`company_id`, `content_hash`) |
+| `signals` | `company_id`, `service_id`, `question_id` / `rule_id`, `origin`, `answer`, `confidence`, `evidence[{quote,url,date}]`, `reasoning`, `run_id` | (`company_id`, `detected_at`), `question_id`, `rule_id` |
+| `company_events` | `company_id`, `event_type`, `title`, `summary`, `event_date`, `url`, `polarity` | (`company_id`, `event_date`) |
+| `lead_scores` | `company_id`, `service_id`, `icp_score`, `signal_score`, `final_score`, `tier`, `breakdown`, `explanation`, `previous_score` | unique (`company_id`, `service_id`), `final_score` |
+| `pipeline_runs` | `kind`, `status`, `params`, `progress`, `stats` (tokens, cost), `log[{t,msg}]` (last 200-300 lines), `error` | `status` |
+| `llm_cache` | `_id` = hash of (task, model, company, question, passages), `value` | primary key |
 
 ## API (full contract at `/docs`)
 
@@ -326,6 +302,9 @@ erDiagram
 | Runs | `POST /runs` (`{company_ids?, service_ids?, sources?, explain?}`), `GET /runs`, `GET /runs/{id}` (status, progress, log, per-source stats, tokens, cost) |
 | Outreach | `POST /companies/{id}/outreach?service=&channel=email\|linkedin\|followup&tone=formal\|consultative&language=EN\|RO\|DE` |
 | CRM | `GET /export/leads.csv`, `GET /export/leads.json`, `POST /crm/hubspot` (body: lead ids) |
+| Auth | `POST /auth/login` (`{email, password}` → bearer token, 14 days), `POST /auth/logout`, `GET /auth/me` |
+| Sellers | `POST /sellers` (the first account is free and becomes admin, afterwards admin only), `GET /sellers`, `PUT /sellers/{id}`, `DELETE /sellers/{id}` |
+| Lead stage / owner | `GET /assignments?seller_id=`, `GET/PUT /companies/{id}/assignment` (`{stage?, seller_id?, unassign?}`), `POST /companies/{id}/notes` — need `Authorization: Bearer <token>` |
 
 LinkedIn is used **only** for manual validation fields entered by reps. Nothing is scraped from LinkedIn.
 
@@ -365,7 +344,7 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 
 | UI | Backend endpoint | Status |
 |---|---|---|
-| Leads, Home, Pipeline | `GET /leads` | Live (pipeline stage and owner are kept in the browser; the backend has no such fields yet) |
+| Leads, Home, Pipeline | `GET /leads` | Live (pipeline stage and owner are still kept in the browser; the backend now stores them per seller in `lead_assignments` via `/companies/{id}/assignment`, the login screen is not wired yet) |
 | Company record | `GET /companies/{id}` | Live: scores per service, why-now, signals with quote, source, date, confidence and points |
 | Configuration | `/services`, `/services/{id}/questions`, `/rules`, `/icp`, `/scoring-config`, `POST /scores/recompute` | Questions and rules are read from the API; edits are not saved yet |
 | Sources and runs | `GET /sources`, `POST /discovery/runs`, `GET /runs/{id}` | Live: per-source status, last run, errors and missing keys; "Rulează acum" starts a real discovery run |
@@ -404,7 +383,7 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 |---|---|
 | GIG-14 Sources, keys, limits | Source catalogue with limits/fallback (`docs/data-sources.md`), 25 discovery + 8 enrichment sources, cursors, throttling (GDELT ≥ 5 s, SEC 10 req/s), 429 backoff, `/sources` status API, scheduler, live smoke script |
 | GIG-12 Repo setup | Structure, `.env.example`, local run without containers (see Quick start) |
-| GIG-13 PostgreSQL schema | `backend/app/models.py`, Alembic `0001` (applied and round-tripped on Postgres 16), ERD above |
+| GIG-13 Database schema | PostgreSQL for sellers + configuration (`backend/app/models.py`, Alembic `0001`-`0003`), MongoDB for companies, AI data and logs (`backend/app/mongo.py`), see [Databases](#databases) |
 | GIG-15 ICP | `/icp` CRUD, fit score 0–100 with partial matches, `min_fit` filter |
 | GIG-16 Signal questions | CRUD with weight / source_hint / lookback_days; APA + Cyber examples seeded; new questions are picked up by the next run (tested) |
 | GIG-17 Negative signals + disqualifiers | `is_negative` questions subtract; `field_rule` / `llm_question` rules; reasons shown on the lead |
@@ -424,8 +403,9 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 
 ### Verification status (25 Sep 2026)
 
-- **Local stack: verified.** PostgreSQL 15, migrations 0001 and 0002, seed, API, frontend and a pipeline run
-  (all backend and pipeline tests pass, frontend builds).
+- **Local stack: verified.** PostgreSQL 15 (migrations 0001-0003) + MongoDB 7, seed, API, seller login and lead
+  assignments, a pipeline run and a live discovery run; all backend and pipeline tests pass, 1,002 companies load and
+  score in about 20 s with the heuristic backend, and the frontend builds.
 - **Live collectors and discovery sources: not verified.** The build sandbox's network policy rejects every external
   data host (`python -m sales_pipeline.sources.smoke` → 403 from the egress proxy for all 30 checks). They are covered
   by mocked-HTTP tests built from each API's documented response format. Run the smoke script on a machine with

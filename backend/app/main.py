@@ -7,7 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-from .api import config_routes, lead_routes, source_routes
+from . import mongo
+from .api import config_routes, lead_routes, seller_routes, source_routes
 from .config import get_settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -54,12 +55,14 @@ def create_app(session_factory: sessionmaker | None = None, llm_override=None, h
     def health():
         with session_factory() as db:
             db.execute(text("select 1"))
+        mongo.db().command("ping")
         s = get_settings()
-        return {"status": "ok", "llm": s.llm_provider or ("anthropic" if s.anthropic_api_key else "heuristic")}
+        return {"status": "ok", "postgres": "ok", "mongodb": "ok", "llm": s.llm_provider or ("anthropic" if s.anthropic_api_key else "heuristic")}
 
     app.include_router(config_routes.router)
     app.include_router(lead_routes.router)
     app.include_router(source_routes.router)
+    app.include_router(seller_routes.router)
     return app
 
 

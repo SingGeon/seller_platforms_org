@@ -8,12 +8,13 @@ from fastapi.testclient import TestClient
 
 from app.discovery import due_sources, resolve_company
 from app.main import create_app
-from app.models import Company, SourceState
+from app import mongo
+from app.models import SourceState
 from app.scheduler import tick
 from sales_pipeline import Document, HeuristicBackend
 from sales_pipeline.sources.base import THROTTLE, DiscoveredItem
 
-from .test_api import wait_for_run
+from .api_test import wait_for_run
 
 NOW = datetime.now(timezone.utc)
 
@@ -112,14 +113,12 @@ def test_discovery_countries_come_from_config(dclient):
 
 def test_resolve_company_by_domain_and_normalized_name(seeded):
     doc = Document(source_type="news", url="https://x.example/1", title="t", text="t")
-    with seeded() as db:
-        c1, created = resolve_company(db, DiscoveredItem(company_name="GitLab Inc.", company_domain="https://gitlab.com/", document=doc), "hn")
-        assert created and c1.domain == "gitlab.com"
-        c2, created = resolve_company(db, DiscoveredItem(company_name="GITLAB INC (GTLB) (CIK 0001653482)", document=doc), "sec")
-        assert not created and c2.id == c1.id
-        c3, created = resolve_company(db, DiscoveredItem(company_name="Totally Different", company_domain="gitlab.com", document=doc), "x")
-        assert c3.id == c1.id
-        db.commit()
+    c1, created = resolve_company(DiscoveredItem(company_name="GitLab Inc.", company_domain="https://gitlab.com/", document=doc), "hn")
+    assert created and c1.domain == "gitlab.com"
+    c2, created = resolve_company(DiscoveredItem(company_name="GITLAB INC (GTLB) (CIK 0001653482)", document=doc), "sec")
+    assert not created and c2.id == c1.id
+    c3, created = resolve_company(DiscoveredItem(company_name="Totally Different", company_domain="gitlab.com", document=doc), "x")
+    assert c3.id == c1.id
 
 
 def test_scheduler_runs_due_sources_once(seeded, monkeypatch):
@@ -144,5 +143,5 @@ def test_scheduler_runs_due_sources_once(seeded, monkeypatch):
     with seeded() as db:
         assert db.get(SourceState, "ransomware_live").last_status == "ok"
         assert due_sources(db) == []  # next_run_at is in the future now
-        assert db.query(Company).filter(Company.origin == "ransomware_live").count() == 2
+        assert mongo.db()[mongo.COMPANIES].count_documents({"origin": "ransomware_live"}) == 2
     assert asyncio.run(tick(seeded, HeuristicBackend())) is None

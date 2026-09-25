@@ -25,16 +25,15 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 import httpx
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from sales_pipeline.collectors import collect_news
 from sales_pipeline.llm import LLMBackend
 from sales_pipeline.sources.bulk import COUNTRY_QID, RegistryCompany, gleif_companies, wikidata_companies
 from sales_pipeline.sources.companies import normalize_company_name, normalize_domain
 
-from .discovery import store_document
-from .models import Company, LeadScore, PipelineRun, RawDocument
+from . import mongo
+from .mongo import MDoc
 from .orchestrator import ENRICH_SOURCES, company_info, execute_run
 
 log = logging.getLogger(__name__)
@@ -45,27 +44,30 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def upsert_company(db: Session, rc: RegistryCompany) -> tuple[Company, bool]:
+def upsert_company(rc: RegistryCompany) -> tuple[MDoc, bool]:
     domain = normalize_domain(rc.domain)
     norm = normalize_company_name(rc.name)
-    company = db.scalar(select(Company).where(Company.domain == domain)) if domain else None
+    company = mongo.find_one(mongo.COMPANIES, {"domain": domain}) if domain else None
     if company is None and norm:
-        company = db.scalar(select(Company).where(Company.normalized_name == norm, Company.country == rc.country).limit(1))
+        company = mongo.find_one(mongo.COMPANIES, {"normalized_name": norm, "country": rc.country})
     profile = {rc.source: rc.registry_profile()}
     if company is None:
-        company = Company(
-            name=rc.name[:300], domain=domain, country=rc.country, industry=rc.industry, employee_count=rc.employee_count,
-            origin=rc.source, registry_profiles=profile, aliases=[], discovered_via=[{"source": rc.source, "signal": "registry", "at": utcnow().isoformat()}],
-        )
-        db.add(company)
-        db.flush()
+        company = mongo.insert_company({
+            "name": rc.name[:300], "domain": domain, "country": rc.country, "industry": rc.industry, "employee_count": rc.employee_count,
+            "origin": rc.source, "registry_profiles": profile, "aliases": [],
+            "discovered_via": [{"source": rc.source, "signal": "registry", "at": utcnow().isoformat()}],
+        })
         return company, True
-    company.industry = company.industry or rc.industry
-    company.employee_count = company.employee_count or rc.employee_count
-    company.country = company.country or rc.country
-    if domain and not company.domain and db.scalar(select(Company.id).where(Company.domain == domain)) is None:
-        company.domain = domain
-    company.registry_profiles = {**(company.registry_profiles or {}), **profile}
+    fields = {
+        "industry": company.industry or rc.industry,
+        "employee_count": company.employee_count or rc.employee_count,
+        "country": company.country or rc.country,
+        "registry_profiles": {**(company.registry_profiles or {}), **profile},
+    }
+    if domain and not company.domain and not mongo.domain_taken(domain):
+        fields["domain"] = domain
+    mongo.update_company(company.id, fields)
+    company.update(fields)
     return company, False
 
 
@@ -118,13 +120,11 @@ async def fetch_registry(client: httpx.AsyncClient, countries: list[str], target
     return [r for c in countries for r in by_country[c]]
 
 
-def companies_needing_news(db: Session, ids: list[int]) -> list[int]:
+def companies_needing_news(ids: list[int]) -> list[int]:
     cutoff = utcnow() - timedelta(hours=NEWS_FRESH_HOURS)
     fresh = set(
-        db.scalars(
-            select(RawDocument.company_id).where(
-                RawDocument.company_id.in_(ids), RawDocument.source_type == "news", RawDocument.fetched_at >= cutoff
-            )
+        mongo.db()[mongo.DOCUMENTS].distinct(
+            "company_id", {"company_id": {"$in": ids}, "source_type": "news", "fetched_at": {"$gte": cutoff}}
         )
     )
     return [i for i in ids if i not in fresh]
@@ -139,16 +139,13 @@ async def fetch_news(sf: sessionmaker, client: httpx.AsyncClient, ids: list[int]
     async def one(cid: int) -> None:
         nonlocal done
         async with sem:
-            with sf() as db:
-                info = company_info(db.get(Company, cid))
+            info = company_info(mongo.get(mongo.COMPANIES, cid))
             try:
                 docs = await collect_news(info, client=client, providers=providers)
             except Exception:  # noqa: BLE001
                 stats["failed"] += 1
                 docs = []
-            with sf() as db:
-                new = sum(store_document(db, cid, d) for d in docs)
-                db.commit()
+            new = sum(mongo.store_document(cid, d) for d in docs)
             stats["news_documents"] += new
             stats["companies_with_news"] += int(bool(docs))
             done += 1
@@ -189,49 +186,37 @@ async def bootstrap(
             raise RuntimeError("no companies loaded: every registry request failed (network blocked or source down), see the log")
         created = 0
         ids: list[int] = []
-        with sf() as db:
-            for rc in records:
-                company, is_new = upsert_company(db, rc)
-                created += int(is_new)
-                ids.append(company.id)
-            db.commit()
+        for rc in records:
+            company, is_new = upsert_company(rc)
+            created += int(is_new)
+            ids.append(company.id)
         ids = list(dict.fromkeys(ids))
         stats.update(registry_records=len(records), companies=len(ids), companies_created=created)
         say(f"  {len(ids)} companies ({created} new)")
 
         if news and ids:
-            with sf() as db:
-                todo = companies_needing_news(db, ids)
+            todo = companies_needing_news(ids)
             say(f"2/4 News for {len(todo)} companies (skipping {len(ids) - len(todo)} refreshed in the last {NEWS_FRESH_HOURS} h)")
             stats["news"] = await fetch_news(sf, client, todo, gdelt=gdelt, concurrency=news_concurrency, say=say)
 
         if analyze and ids:
             say(f"3/4 Signal analysis and scoring for {len(ids)} companies")
-            with sf() as db:
-                run = PipelineRun(status="queued", kind="enrichment", params={"stage": "bootstrap-analysis", "parent_run": run_id})
-                db.add(run)
-                db.commit()
-                analysis_id = run.id
+            analysis_id = mongo.create_run(kind="enrichment", params={"stage": "bootstrap-analysis", "parent_run": run_id}).id
             await execute_run(sf, analysis_id, company_ids=ids, sources=(), llm=llm, explain=True)
             stats["analysis_run"] = analysis_id
 
         if enrich_top_n > 0 and ids:
-            with sf() as db:
-                best: dict[int, float] = {}
-                for lead in db.scalars(select(LeadScore).where(LeadScore.company_id.in_(ids), LeadScore.disqualified.is_(False))):
-                    if not (lead.breakdown or {}).get("outside_icp"):
-                        best[lead.company_id] = max(best.get(lead.company_id, 0.0), lead.final_score)
-                top = [cid for cid, _ in sorted(best.items(), key=lambda kv: -kv[1])[:enrich_top_n]]
-                run = PipelineRun(status="queued", kind="enrichment", params={"stage": "bootstrap-enrichment", "parent_run": run_id})
-                db.add(run)
-                db.commit()
-                enrich_id = run.id
+            best: dict[int, float] = {}
+            for lead in mongo.find(mongo.LEAD_SCORES, {"company_id": {"$in": ids}, "disqualified": False}):
+                if not (lead.breakdown or {}).get("outside_icp"):
+                    best[lead.company_id] = max(best.get(lead.company_id, 0.0), lead.final_score)
+            top = [cid for cid, _ in sorted(best.items(), key=lambda kv: -kv[1])[:enrich_top_n]]
+            enrich_id = mongo.create_run(kind="enrichment", params={"stage": "bootstrap-enrichment", "parent_run": run_id}).id
             say(f"4/4 Full enrichment (website, jobs, registries) for the top {len(top)} leads")
             await execute_run(sf, enrich_id, company_ids=top, sources=ENRICH_SOURCES, llm=llm)
             stats["enrichment_run"] = enrich_id
 
-        with sf() as db:
-            stats["totals"] = summary(db)
+        stats["totals"] = summary()
         stats["duration_seconds"] = round(time.monotonic() - started, 1)
         say(f"Done in {stats['duration_seconds']}s: {stats['totals']}")
         return stats
@@ -240,13 +225,13 @@ async def bootstrap(
             await client.aclose()
 
 
-def summary(db: Session) -> dict[str, int]:
-    tiers = dict(db.execute(select(LeadScore.tier, func.count()).group_by(LeadScore.tier)).all())
-    with_news = db.scalar(select(func.count(func.distinct(RawDocument.company_id))).where(RawDocument.source_type == "news")) or 0
+def summary() -> dict[str, int]:
+    d = mongo.db()
+    tiers = {r["_id"]: r["n"] for r in d[mongo.LEAD_SCORES].aggregate([{"$group": {"_id": "$tier", "n": {"$sum": 1}}}])}
     return {
-        "companies": db.scalar(select(func.count(Company.id))) or 0,
-        "companies_with_news": with_news,
-        "documents": db.scalar(select(func.count(RawDocument.id))) or 0,
+        "companies": d[mongo.COMPANIES].count_documents({}),
+        "companies_with_news": len(d[mongo.DOCUMENTS].distinct("company_id", {"source_type": "news"})),
+        "documents": d[mongo.DOCUMENTS].count_documents({}),
         "hot": tiers.get("Hot", 0), "warm": tiers.get("Warm", 0), "cold": tiers.get("Cold", 0), "disqualified": tiers.get("Disqualified", 0),
     }
 

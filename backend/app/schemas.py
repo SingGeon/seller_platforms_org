@@ -272,3 +272,63 @@ class OutreachOut(BaseModel):
     grounded: bool
     sources: list[dict]
     usage: dict
+
+
+# ---------------------------------------------------------------- seller accounts and CRM state (PostgreSQL)
+
+Stage = Literal["nou", "calificat", "contactat", "negociere", "castigat", "descalificat"]
+
+
+class SellerCreate(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    full_name: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=8, max_length=200)
+    role: Literal["seller", "admin"] = "seller"
+
+
+class SellerUpdate(BaseModel):
+    full_name: str | None = Field(None, min_length=1, max_length=200)
+    password: str | None = Field(None, min_length=8, max_length=200)
+    role: Literal["seller", "admin"] | None = None
+    active: bool | None = None
+
+
+class SellerOut(ORM):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    active: bool
+    created_at: datetime
+    last_login_at: datetime | None = None
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    seller: SellerOut
+
+
+class AssignmentIn(BaseModel):
+    stage: Stage | None = None
+    seller_id: int | None = Field(None, description="Owner; omit to keep, use unassign=true to clear")
+    unassign: bool = False
+
+
+class NoteIn(BaseModel):
+    text: str = Field(min_length=1, max_length=5000)
+
+
+class AssignmentOut(ORM):
+    company_id: int
+    seller_id: int | None = None
+    owner: str | None = None
+    stage: str
+    notes: list[dict[str, Any]] = Field(default_factory=list)
+    updated_at: datetime | None = None

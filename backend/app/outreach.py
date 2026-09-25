@@ -4,7 +4,8 @@ from __future__ import annotations
 from sales_pipeline.documents import clean_text
 from sales_pipeline.llm import LLMBackend
 
-from .models import Company, LeadScore, Service
+from .models import Service
+from .mongo import MDoc
 
 CHANNEL_LIMITS = {"email": 120, "followup": 80}  # words
 LINKEDIN_MAX_CHARS = 300
@@ -37,7 +38,7 @@ def grounded_in_signals(body: str, top_signals: list[dict]) -> bool:
 
 
 async def generate_outreach(
-    llm: LLMBackend, company: Company, service: Service, lead: LeadScore | None, *, channel: str, tone: str, language: str
+    llm: LLMBackend, company: MDoc, service: Service, lead: MDoc | None, *, channel: str, tone: str, language: str
 ) -> dict:
     top = (lead.explanation or {}).get("top_signals", []) if lead else []
     payload = {

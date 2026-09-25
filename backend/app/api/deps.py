@@ -4,7 +4,9 @@ from fastapi import HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import mongo
 from ..models import Service
+from ..mongo import MDoc
 
 
 def get_db(request: Request) -> Iterator[Session]:
@@ -20,6 +22,17 @@ def get_or_404(db: Session, model, obj_id: int):
     if obj is None:
         raise HTTPException(404, f"{model.__name__} {obj_id} not found")
     return obj
+
+
+def mongo_or_404(collection: str, obj_id: int, label: str) -> MDoc:
+    obj = mongo.get(collection, obj_id)
+    if obj is None:
+        raise HTTPException(404, f"{label} {obj_id} not found")
+    return obj
+
+
+def company_or_404(company_id: int) -> MDoc:
+    return mongo_or_404(mongo.COMPANIES, company_id, "Company")
 
 
 def resolve_service(db: Session, ref: str | int) -> Service:

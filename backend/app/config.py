@@ -4,9 +4,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # The repository-root .env (README) and backend/.env both work; the later file wins.
+    model_config = SettingsConfigDict(env_file=("../.env", ".env"), extra="ignore")
 
-    database_url: str = "postgresql+psycopg://orange:orange@localhost:5432/orange_signals"
+    # PostgreSQL: seller accounts, sessions, lead assignments and configuration (services, ICP,
+    # questions, rules, scoring, source state).
+    database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/MT"
+    # MongoDB: companies and everything about them (documents, AI signals, alerts/events, scores),
+    # the LLM cache and pipeline run logs.
+    mongo_uri: str = "mongodb://localhost:27017"
+    mongo_db: str = "leadradar"
 
     # LLM: "anthropic" | "heuristic" | "" (auto: anthropic when ANTHROPIC_API_KEY is set)
     llm_provider: str = ""

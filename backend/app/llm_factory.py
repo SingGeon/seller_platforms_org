@@ -1,12 +1,10 @@
 from typing import Any
 
-from sqlalchemy.orm import Session, sessionmaker
-
 from sales_pipeline import AnthropicBackend, HeuristicBackend
 from sales_pipeline.llm import LLMBackend
 
 from .config import get_settings
-from .models import LlmCache
+from . import mongo
 
 
 def get_llm() -> LLMBackend:
@@ -26,18 +24,12 @@ def get_llm() -> LLMBackend:
     return HeuristicBackend()
 
 
-class DbCache:
-    """LLM response cache persisted in `llm_cache` so re-runs don't re-pay (GIG-28)."""
-
-    def __init__(self, session_factory: sessionmaker) -> None:
-        self._sf = session_factory
+class MongoCache:
+    """LLM response cache persisted in MongoDB `llm_cache` so re-runs don't re-pay (GIG-28)."""
 
     def get(self, key: str) -> Any | None:
-        with self._sf() as db:  # type: Session
-            row = db.get(LlmCache, key)
-            return row.value if row else None
+        row = mongo.db()[mongo.LLM_CACHE].find_one({"_id": key}, {"value": 1})
+        return row["value"] if row else None
 
     def set(self, key: str, value: Any) -> None:
-        with self._sf() as db:
-            db.merge(LlmCache(key=key, value=value))
-            db.commit()
+        mongo.db()[mongo.LLM_CACHE].replace_one({"_id": key}, {"_id": key, "value": value, "created_at": mongo.utcnow()}, upsert=True)

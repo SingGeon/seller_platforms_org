@@ -12,11 +12,11 @@ from fastapi.testclient import TestClient
 
 from app.bootstrap import bootstrap
 from app.main import create_app
-from app.models import Company, RawDocument
+from app import mongo
 from sales_pipeline import HeuristicBackend
 from sales_pipeline.sources.base import THROTTLE
 
-from .test_api import wait_for_run
+from .api_test import wait_for_run
 
 NOW = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
 INDUSTRIES = ["banking", "air transport", "logistics", "telecommunications industry", "retail", "software industry"]
@@ -71,13 +71,12 @@ def test_bootstrap_loads_real_registry_records_news_and_scores(seeded):
     stats = asyncio.run(bootstrap(seeded, countries=["RO", "MD"], target=40, llm=HeuristicBackend(), client=registry_client(50), say=lambda m: None))
     assert stats["companies"] == 40 and stats["companies_created"] == 40
     assert stats["news"]["companies_with_news"] == 40
-    with seeded() as db:
-        c = db.query(Company).filter(Company.name == "RO Company 3 S.A.").one()
-        assert (c.domain, c.country, c.industry, c.employee_count, c.origin) == ("rocompany3.example", "RO", "Telecommunications", 1030, "wikidata")
-        assert c.registry_profiles["wikidata"]["wikidata_id"] == "QRO3"
-        docs = db.query(RawDocument).filter(RawDocument.company_id == c.id).all()
-        # the unrelated market wrap does not mention the company and is dropped
-        assert [d.url for d in docs] == ["https://news.example/RO-Company-3"]
+    c = mongo.find_one(mongo.COMPANIES, {"name": "RO Company 3 S.A."})
+    assert (c.domain, c.country, c.industry, c.employee_count, c.origin) == ("rocompany3.example", "RO", "Telecommunications", 1030, "wikidata")
+    assert c.registry_profiles["wikidata"]["wikidata_id"] == "QRO3"
+    docs = mongo.find(mongo.DOCUMENTS, {"company_id": c.id})
+    # the unrelated market wrap does not mention the company and is dropped
+    assert [d.url for d in docs] == ["https://news.example/RO-Company-3"]
     assert stats["totals"]["warm"] + stats["totals"]["hot"] > 0  # automation news -> real signals -> scored leads
 
     # re-running is idempotent: same companies, news not refetched within 24 h
@@ -98,9 +97,9 @@ def test_shortfall_is_redistributed_to_countries_with_more_companies(seeded):
 
     stats = asyncio.run(bootstrap(seeded, countries=["RO", "MD"], target=100, news=False, analyze=False, client=client(), say=lambda m: None))
     assert stats["companies"] == 100
-    with seeded() as db:
-        assert db.query(Company).filter(Company.country == "MD", Company.origin == "wikidata").count() == 5
-        assert db.query(Company).filter(Company.country == "RO", Company.origin == "wikidata").count() == 95
+    companies = mongo.db()[mongo.COMPANIES]
+    assert companies.count_documents({"country": "MD", "origin": "wikidata"}) == 5
+    assert companies.count_documents({"country": "RO", "origin": "wikidata"}) == 95
 
 
 def test_bootstrap_fails_loudly_when_registries_are_unreachable(seeded):
@@ -113,10 +112,9 @@ def test_gleif_fills_countries_with_few_wikidata_companies(seeded):
     stats = asyncio.run(bootstrap(seeded, countries=["MD"], target=30, gleif_fill=True, news=False, analyze=False,
                                   client=registry_client(10), say=lambda m: None))
     assert stats["companies"] == 30
-    with seeded() as db:
-        assert db.query(Company).filter(Company.origin == "gleif").count() == 20
-        e = db.query(Company).filter(Company.origin == "gleif").first()
-        assert e.registry_profiles["gleif"]["lei"].startswith("LEIMD")
+    assert mongo.db()[mongo.COMPANIES].count_documents({"origin": "gleif"}) == 20
+    e = mongo.find_one(mongo.COMPANIES, {"origin": "gleif"})
+    assert e.registry_profiles["gleif"]["lei"].startswith("LEIMD")
 
 
 def test_bootstrap_api_and_dashboard(seeded):
@@ -134,7 +132,7 @@ def test_bootstrap_api_and_dashboard(seeded):
         assert any(s["signals"] for s in de["scores"])
 
 
-@pytest.mark.skipif(os.getenv("LOAD_TEST") != "1", reason="load test; run with LOAD_TEST=1 pytest tests/test_bootstrap.py -k thousand -s")
+@pytest.mark.skipif(os.getenv("LOAD_TEST") != "1", reason="load test; run with LOAD_TEST=1 pytest tests/bootstrap_test.py -k thousand -s")
 def test_thousand_companies_load(seeded):
     t0 = time.monotonic()
     stats = asyncio.run(bootstrap(seeded, countries=["RO", "MD", "DE"], target=1002, llm=HeuristicBackend(), client=registry_client(400), say=print))
