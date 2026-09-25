@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  --color-orange: #ff7900;
+  --color-orange-ink: #f16e00;
+  --color-orange-soft: #ffe5cc;
+  --color-orange-wash: #fff4eb;
+
+  --color-ink: #000000;
+  --color-ink-2: #333333;
+  --color-muted: #666666;
+  --color-faint: #999999;
+  --color-line: #dddddd;
+  --color-band: #eeeeee;
+  --color-canvas: #f6f6f6;
+
+  --color-svc-1: #527edb;
+  --color-svc-2: #50be87;
+  --color-svc-3: #a885d8;
+
+  --color-ok: #228722;
+  --color-ok-bg: #e6f5e6;
+  --color-warn: #ffcc00;
+  --color-warn-bg: #fff8d9;
+  --color-danger: #cd3c14;
+  --color-danger-bg: #fbe9e4;
+
+  --radius-*: initial;
+  --radius-none: 0;
+  --radius-full: 9999px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-bold;
+    letter-spacing: -0.01em;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+  input,
+  select,
+  textarea {
+    @apply border-2 border-line bg-white px-3 text-ink;
+  }
+  input:focus,
+  select:focus,
+  textarea:focus {
+    @apply border-ink outline-none;
+  }
+  select {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' fill='none' stroke='%23000' stroke-width='2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.6rem center;
+  }
+}
+
+@layer utilities {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise {
+  animation: rise 0.35s ease-out both;
+}
+
+@keyframes blip {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.blip {
+  animation: blip 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .blip {
+    animation: none;
+  }
+}

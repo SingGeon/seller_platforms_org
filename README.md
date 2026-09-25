@@ -18,7 +18,7 @@ explains each company × service lead.
 |---|---|
 | `backend/` | FastAPI REST API, PostgreSQL models + Alembic migrations, scoring engine, run orchestration, outreach, CRM export |
 | `pipeline/` | `sales_pipeline` package: collectors (news / web / jobs), LangGraph signal-extraction graph, LLM backends, prompts, calibration set |
-| `frontend/` | React + Vite app (a minimal shell for now; the dashboard is GIG-33 to GIG-37) |
+| `frontend/` | React + TypeScript + Vite + Tailwind CRM dashboard (GIG-33 to GIG-37) — runs on demo data for now, see `frontend/README.md` |
 | `infra/` | Deployment notes / manifests |
 
 ## Quick start
