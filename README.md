@@ -323,17 +323,17 @@ behind every point of the score. The UI is in Romanian and follows the Orange vi
 
 ### Data and API wiring
 
-The app currently runs on **demo data**: 15 fictional companies on the reserved `.example` domain in
-`frontend/src/data/mock.ts`, so no signal is ever invented about a real company. Every page reads through
-`frontend/src/data/api.ts`, so connecting the backend only changes that file. The API base URL comes from
-`VITE_API_URL` (set in `docker-compose.yml`).
+The app loads its data from the backend at startup (`frontend/src/data/backend.ts` maps API responses onto the UI
+types; the pages still read through `frontend/src/data/api.ts`). If the API is unreachable, or `VITE_USE_MOCK=true`,
+it falls back to 15 fictional demo companies on the reserved `.example` domain (`frontend/src/data/mock.ts`) and shows
+a "Date demo" badge. The API base URL comes from `VITE_API_URL` (set in `docker-compose.yml`).
 
 | UI | Backend endpoint | Status |
 |---|---|---|
-| Leads, Home, Pipeline | `GET /leads` | Demo data |
-| Company record | `GET /companies/{id}`, `/events`, `/documents`, `POST /companies/{id}/explain` | Demo data |
-| Configuration | `/services`, `/services/{id}/questions`, `/rules`, `/icp`, `/scoring-config`, `POST /scores/recompute` | UI only, not saved |
-| Sources and runs | `POST /runs`, `GET /runs`, `GET /runs/{id}` | Demo data, "Run now" simulated |
+| Leads, Home, Pipeline | `GET /leads` | Live (pipeline stage and owner are kept in the browser; the backend has no such fields yet) |
+| Company record | `GET /companies/{id}` | Live: scores per service, why-now, signals with quote, source, date, confidence and points |
+| Configuration | `/services`, `/services/{id}/questions`, `/rules`, `/icp`, `/scoring-config`, `POST /scores/recompute` | Questions and rules are read from the API; edits are not saved yet |
+| Sources and runs | `GET /sources`, `POST /discovery/runs`, `GET /runs/{id}` | Live: per-source status, last run, errors and missing keys; "Rulează acum" starts a real discovery run |
 | Generate message | `POST /companies/{id}/outreach` | Placeholder |
 | Send to HubSpot / Export CSV | `POST /crm/hubspot`, `GET /export/leads.csv` | HubSpot not wired; CSV exported in the browser |
 | LinkedIn check | `PUT /companies/{id}/linkedin` | Opens a LinkedIn search for manual review; fields not yet saved |
@@ -360,8 +360,8 @@ The app currently runs on **demo data**: 15 fictional companies on the reserved 
 | GIG-44 5-minute demo script and backup video | To do |
 | GIG-45 README, architecture docs, deploy | In progress: web application section above and `frontend/README.md` |
 
-**Next frontend step:** replace the demo data in `frontend/src/data/api.ts` with calls to the API above, starting
-with `GET /leads` and `GET /companies/{id}`.
+**Next frontend step:** save Configuration edits through the API, wire "Generează mesaj" to
+`POST /companies/{id}/outreach` and "Trimite în HubSpot" to `POST /crm/hubspot`.
 
 ## Jira mapping (backend / data / AI: Gheorghe Singereanu)
 
@@ -387,8 +387,17 @@ with `GET /leads` and `GET /companies/{id}`.
 | GIG-38 Outreach | Email / LinkedIn / follow-up drafts grounded in real signals, length limits enforced, `grounded` flag |
 | GIG-40 CRM | CSV / JSON export; HubSpot company upsert + note |
 
-### Not yet verified in this environment
+### Verification status (25 Sep 2026)
 
-- **Live collectors and discovery sources**: the build sandbox's network policy blocks every external data host, so collectors and all 25 discovery sources are covered by mocked-HTTP tests built from each API's documented response format. Run `python -m sales_pipeline.sources.smoke` on a machine with internet access to confirm them live.
-- **Claude answers**: no API key was available. The Anthropic backend is tested through the real SDK with a mocked transport (request shape and parsing). The GIG-26 ≥80% precision target still has to be measured with `calibration/run_calibration.py --provider anthropic`. The offline keyword backend scores 58% accuracy / 100% yes-precision on that set.
-- **`docker compose up`**: Docker Hub rate-limited image pulls here. The compose file validates, and the same startup sequence (migrate, seed, serve) was run directly against Postgres 16.
+- **`docker compose up --build`: verified.** Postgres, migrations 0001 and 0002, seed, API, frontend and a pipeline
+  run inside Docker, with the frontend showing live API data in Chromium. (In the build sandbox, Docker Hub was
+  rate-limited, so base images came from `mirror.gcr.io`, and a local-only override injected the sandbox's TLS
+  certificate. Neither is needed on a normal machine.)
+- **Live collectors and discovery sources: not verified.** The build sandbox's network policy rejects every external
+  data host (`python -m sales_pipeline.sources.smoke` → 403 from the egress proxy for all 30 checks). They are covered
+  by mocked-HTTP tests built from each API's documented response format. Run the smoke script on a machine with
+  internet access to confirm them live.
+- **Claude answers: not measured.** No `ANTHROPIC_API_KEY` was available. The Anthropic backend is tested through the
+  real SDK with a mocked transport (request shape and parsing). The GIG-26 ≥ 80% precision target still has to be
+  measured with `calibration/run_calibration.py --provider anthropic`. The offline keyword backend scores 58% accuracy
+  (7/12) and 100% yes-precision (4/4) on that set.

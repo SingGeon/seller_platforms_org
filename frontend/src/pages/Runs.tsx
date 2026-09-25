@@ -1,6 +1,6 @@
 import { CircleCheck, CircleX, RefreshCw, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
-import { getSources, timeAgo } from '../data/api'
+import { getSources, isLive, runNowAndReload, timeAgo } from '../data/api'
 import type { RefreshTier, SourceStatus } from '../data/types'
 import { Button, PageHeader } from '../components/ui'
 
@@ -22,13 +22,29 @@ export default function Runs() {
   const [sources, setSources] = useState(getSources)
   const [running, setRunning] = useState(false)
 
-  const runNow = () => {
+  const [runError, setRunError] = useState<string | null>(null)
+
+  const runNow = async () => {
     setRunning(true)
-    setTimeout(() => {
-      const now = new Date().toISOString()
-      setSources((list) => list.map((s) => (s.status === 'error' ? s : { ...s, lastRun: now })))
+    setRunError(null)
+    if (!isLive()) {
+      // Demo data: simulate a run so the page still demonstrates the flow.
+      setTimeout(() => {
+        const now = new Date().toISOString()
+        setSources((list) => list.map((s) => (s.status === 'error' ? s : { ...s, lastRun: now })))
+        setRunning(false)
+      }, 2200)
+      return
+    }
+    try {
+      const status = await runNowAndReload()
+      if (status !== 'succeeded') setRunError(`Rularea s-a încheiat cu starea „${status}” — vezi erorile per sursă.`)
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSources(getSources())
       setRunning(false)
-    }, 2200)
+    }
   }
 
   const totalNew = sources.reduce((a, s) => a + s.newItems, 0)
@@ -50,6 +66,8 @@ export default function Runs() {
           </Button>
         }
       />
+
+      {runError && <p className="mb-4 border-l-4 border-danger bg-white px-4 py-3 text-[14px]">{runError}</p>}
 
       <div className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-5">
         {(Object.keys(TIERS) as RefreshTier[]).map((t) => (

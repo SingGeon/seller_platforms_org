@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router'
 import Layout from './components/Layout'
+import { loadData } from './data/api'
 import './index.css'
 import Company from './pages/Company'
 import Config from './pages/Config'
@@ -24,8 +25,11 @@ const router = createBrowserRouter([
   },
 ])
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <RouterProvider router={router} />
-  </StrictMode>,
+// Load the backend data once before the first render (falls back to demo data if the API is down).
+loadData().finally(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <RouterProvider router={router} />
+    </StrictMode>,
+  ),
 )

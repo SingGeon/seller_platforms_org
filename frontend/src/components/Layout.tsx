@@ -1,7 +1,7 @@
 import { Bell, Kanban, LayoutDashboard, RadioTower, Search, SlidersHorizontal, Users } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router'
-import { getCompanies, getSources, isNew, timeAgo } from '../data/api'
+import { dataError, getCompanies, getSources, isLive, isNew, timeAgo } from '../data/api'
 import { Avatar } from './ui'
 
 function Logo() {
@@ -51,9 +51,14 @@ function TopBar() {
           <span className="blip size-2 bg-orange" aria-hidden />
           Sincronizat {timeAgo(lastSync)}
         </span>
-        <span className="hidden border border-faint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-faint md:inline">
-          Date demo
-        </span>
+        {!isLive() && (
+          <span
+            className="hidden border border-faint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-faint md:inline"
+            title={dataError() ? `API indisponibil: ${dataError()}` : 'Date demo (VITE_USE_MOCK)'}
+          >
+            Date demo
+          </span>
+        )}
         <button type="button" className="relative p-1 hover:text-orange" aria-label={`Notificări: ${newCount} lead-uri noi`}>
           <Bell size={20} />
           {newCount > 0 && (

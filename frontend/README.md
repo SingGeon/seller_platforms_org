@@ -23,9 +23,11 @@ Requires Node 22.22+ (the Docker image uses Node 24).
 
 ## Data
 
-All data currently comes from demo data in `src/data/mock.ts` (fictional companies on the reserved `.example` domain),
-exposed through `src/data/api.ts`. Wiring to the FastAPI backend (`VITE_API_URL`) only needs changes in `api.ts`;
-the shapes the UI expects are in `src/data/types.ts`.
+At startup `src/data/api.ts` loads everything from the FastAPI backend (`VITE_API_URL`, default
+`http://localhost:8000`) through `src/data/backend.ts`, which maps the API responses onto the shapes in
+`src/data/types.ts`. If the API is unreachable, or `VITE_USE_MOCK=true`, the app falls back to the fictional demo
+data in `src/data/mock.ts` and shows the "Date demo" badge in the header. "Rulează acum" on `/runs` starts a real
+discovery run (`POST /discovery/runs`) and reloads the data when it ends.
 
 ## Design tokens
 
