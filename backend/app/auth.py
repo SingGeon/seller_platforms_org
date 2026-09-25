@@ -1,4 +1,5 @@
-"""Seller accounts: PBKDF2 password hashes and opaque bearer tokens (only their SHA-256 is stored)."""
+"""Seller accounts: passwords stored in plain text (team decision, see README "Seller accounts") and opaque
+bearer tokens (only their SHA-256 is stored)."""
 from __future__ import annotations
 
 import hashlib
@@ -12,23 +13,29 @@ from sqlalchemy.orm import Session
 from .api.deps import get_db
 from .models import Seller, SellerSession
 
-PBKDF2_ITERATIONS = 390_000
 SESSION_DAYS = 14
+LEGACY_PREFIX = "pbkdf2_sha256$"  # accounts created before passwords were stored in plain text
 
 
-def hash_password(password: str) -> str:
-    salt = secrets.token_hex(16)
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), PBKDF2_ITERATIONS).hex()
-    return f"pbkdf2_sha256${PBKDF2_ITERATIONS}${salt}${digest}"
-
-
-def verify_password(password: str, stored: str) -> bool:
+def _legacy_match(password: str, stored: str) -> bool:
     try:
         _, iterations, salt, digest = stored.split("$")
+        candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(iterations)).hex()
     except ValueError:
         return False
-    candidate = hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), int(iterations)).hex()
     return hmac.compare_digest(candidate, digest)
+
+
+def check_password(db: Session, seller: Seller, password: str) -> bool:
+    """Compare with the stored password. A legacy PBKDF2 value is accepted once and replaced by the plain text."""
+    stored = seller.password or ""
+    if stored.startswith(LEGACY_PREFIX):
+        if not _legacy_match(password, stored):
+            return False
+        seller.password = password
+        db.commit()
+        return True
+    return hmac.compare_digest(stored.encode(), password.encode())
 
 
 def _token_hash(token: str) -> str:

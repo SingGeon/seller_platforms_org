@@ -117,3 +117,24 @@ def test_mongo_rejects_documents_that_break_the_schema(api):
 
     with pytest.raises(WriteError):
         mongo.db()[mongo.LEAD_SCORES].insert_one({"company_id": 1, "service_id": 1, "final_score": 150, "tier": "Boiling", "computed_at": mongo.utcnow()})
+
+
+def test_passwords_are_stored_in_plain_text_and_legacy_hashes_still_log_in(api, admin, seeded):
+    import hashlib
+
+    from app.models import Seller
+
+    with seeded() as db:
+        assert db.get(Seller, admin.id).password == ADMIN["password"]
+        salt = "00" * 16
+        digest = hashlib.pbkdf2_hmac("sha256", b"legacy-pass-1", bytes.fromhex(salt), 1000).hex()
+        old = Seller(email="old@leadradar.md", full_name="Old", password=f"pbkdf2_sha256$1000${salt}${digest}", role="seller")
+        db.add(old)
+        db.commit()
+        old_id = old.id
+
+    assert api.post("/auth/login", json={"email": "old@leadradar.md", "password": "wrong"}).status_code == 401
+    assert api.post("/auth/login", json={"email": "old@leadradar.md", "password": "legacy-pass-1"}).status_code == 200
+    with seeded() as db:
+        assert db.get(Seller, old_id).password == "legacy-pass-1"  # upgraded to plain text on login
+    assert "password" not in api.get("/auth/me", headers=login(api, "old@leadradar.md", "legacy-pass-1")).json()  # never exposed

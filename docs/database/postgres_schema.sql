@@ -6,7 +6,7 @@
 -- "LeadRadar" schema; the app then connects with
 --   DATABASE_URL=postgresql+psycopg://<user>:<password>@localhost:5432/LDR?options=-csearch_path%3D%22LeadRadar%22
 -- Equivalent to `alembic upgrade head` (the source of truth is backend/alembic/versions); the
--- alembic_version row at the end tells Alembic this schema is already at revision 0003.
+-- alembic_version row at the end tells Alembic this schema is already at revision 0004.
 
 BEGIN;
 
@@ -105,7 +105,7 @@ CREATE TABLE sellers (
     id integer NOT NULL,
     email character varying(320) NOT NULL,
     full_name character varying(200) NOT NULL,
-    password_hash character varying(300) NOT NULL,
+    password character varying(300) NOT NULL,
     role character varying(20) NOT NULL,
     active boolean NOT NULL,
     created_at timestamp with time zone NOT NULL,
@@ -257,6 +257,6 @@ ALTER TABLE ONLY seller_sessions
 ALTER TABLE ONLY signal_questions
     ADD CONSTRAINT signal_questions_service_id_fkey FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE;
 
-INSERT INTO alembic_version (version_num) VALUES ('0003');
+INSERT INTO alembic_version (version_num) VALUES ('0004');
 
 COMMIT;

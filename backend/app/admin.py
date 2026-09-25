@@ -5,7 +5,8 @@
     python -m app.admin deactivate --email admin@orange.md                       # (activate to undo)
     python -m app.admin list
 
-The password is read without echo (or from stdin with --password-stdin) and stored only as a PBKDF2 hash.
+The password is read without echo (or from stdin with --password-stdin) and stored as plain text, like every
+account; admins can therefore also be created or changed with a plain INSERT / UPDATE in DBeaver.
 """
 from __future__ import annotations
 
@@ -16,7 +17,6 @@ import sys
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from .auth import hash_password
 from .models import Seller, SellerSession
 
 MIN_PASSWORD = 8
@@ -29,11 +29,11 @@ def create_admin(db: Session, email: str, full_name: str, password: str) -> Sell
     email = email.strip().lower()
     seller = db.scalar(select(Seller).where(func.lower(Seller.email) == email))
     if seller is None:
-        seller = Seller(email=email, full_name=full_name.strip(), password_hash=hash_password(password), role="admin", active=True)
+        seller = Seller(email=email, full_name=full_name.strip(), password=password, role="admin", active=True)
         db.add(seller)
     else:
         seller.full_name = full_name.strip() or seller.full_name
-        seller.password_hash = hash_password(password)
+        seller.password = password
         seller.role = "admin"
         seller.active = True
     db.commit()
@@ -85,7 +85,7 @@ def main() -> None:
             password = _read_password(args.password_stdin)
             if len(password) < MIN_PASSWORD:
                 raise SystemExit(f"password must have at least {MIN_PASSWORD} characters")
-            admin.password_hash = hash_password(password)
+            admin.password = password
             for s in db.scalars(select(SellerSession).where(SellerSession.seller_id == admin.id)):
                 db.delete(s)  # log out everywhere
             db.commit()

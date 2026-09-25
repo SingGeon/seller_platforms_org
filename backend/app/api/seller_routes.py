@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import integrity, mongo
-from ..auth import bearer_token, current_seller, hash_password, issue_token, require_admin, revoke_token, verify_password
+from ..auth import bearer_token, check_password, current_seller, issue_token, require_admin, revoke_token
 from ..models import LeadAssignment, Seller
 from ..schemas import AssignmentIn, AssignmentOut, LoginIn, NoteIn, SellerCreate, SellerOut, SellerUpdate, TokenOut
 from .deps import company_or_404, get_db, get_or_404
@@ -28,7 +28,7 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
 @router.post("/auth/login", response_model=TokenOut, tags=["auth"])
 def login(body: LoginIn, db: Session = Depends(get_db)):
     seller = db.scalar(select(Seller).where(func.lower(Seller.email) == body.email.strip().lower()))
-    if seller is None or not seller.active or not verify_password(body.password, seller.password_hash):
+    if seller is None or not seller.active or not check_password(db, seller, body.password):
         raise HTTPException(401, "Wrong email or password")
     token, expires = issue_token(db, seller)
     mongo.log_activity("login", seller)
@@ -59,7 +59,7 @@ def create_seller(body: SellerCreate, db: Session = Depends(get_db), _: Seller =
     email = body.email.strip().lower()
     if db.scalar(select(Seller.id).where(func.lower(Seller.email) == email)) is not None:
         raise HTTPException(409, "An account with this email already exists")
-    seller = Seller(email=email, full_name=body.full_name.strip(), password_hash=hash_password(body.password), role="seller")
+    seller = Seller(email=email, full_name=body.full_name.strip(), password=body.password, role="seller")
     db.add(seller)
     db.commit()
     return seller
@@ -87,7 +87,7 @@ def update_seller(seller_id: int, body: SellerUpdate, db: Session = Depends(get_
     if body.full_name is not None:
         seller.full_name = body.full_name.strip()
     if body.password is not None:
-        seller.password_hash = hash_password(body.password)
+        seller.password = body.password
     if body.role is not None:
         seller.role = body.role
     if body.active is not None:

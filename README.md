@@ -186,7 +186,7 @@ Two databases, each holding what it is best at:
 
 | | PostgreSQL (`DATABASE_URL`) | MongoDB (`MONGO_URI` / `MONGO_DB`) |
 |---|---|---|
-| What | Seller accounts and the relational configuration that sales and admins edit | Companies and everything collected or inferred about them, AI output and logs |
+| What | Seller accounts (plain-text passwords, see "Seller accounts" under API) and the relational configuration that sales and admins edit | Companies and everything collected or inferred about them, AI output and logs |
 | Tables / collections | `sellers`, `seller_sessions`, `lead_assignments`, `services`, `icp_criteria`, `signal_questions`, `disqualification_rules`, `scoring_config`, `source_state` | `companies`, `documents`, `signals`, `company_events` (alerts), `lead_scores`, `pipeline_runs` (with log), `llm_cache`, `counters` |
 | Schema | Alembic migrations (`backend/alembic/versions`) | Indexes created on startup (`backend/app/mongo.py`) |
 
@@ -302,7 +302,7 @@ erDiagram
     int id PK
     string email
     string full_name
-    string password_hash
+    string password
     string role
     bool active
   }
@@ -356,9 +356,16 @@ erDiagram
 Every endpoint except `/health`, `/auth/status` and `/auth/login` needs `Authorization: Bearer <token>`
 (`AUTH_REQUIRED=false` turns this off for local experiments).
 
+**Passwords are stored in plain text** in `sellers.password` (team decision, migration 0004): anyone who can read the
+PostgreSQL database or one of its backups sees every password, so keep database access to the admins, and ask sellers
+not to reuse a password from another service. The API never returns the password. Accounts created before 0004 keep
+their old PBKDF2 value until their next login, which replaces it with the plain text. Session tokens are still stored
+only as SHA-256.
+
 **Admin accounts are managed only in the database.** The API never creates an admin, never changes a role, and never
-deactivates, resets or deletes another admin; there is no free first account either. Use the backend command, which
-writes straight to PostgreSQL and stores only the password hash:
+deactivates, resets or deletes another admin; there is no free first account either. Create them with a plain
+`INSERT INTO "LeadRadar".sellers (email, full_name, password, role, active, created_at) VALUES (..., 'admin', true, now())`
+in DBeaver, or with the backend command, which writes straight to PostgreSQL:
 
 ```bash
 cd backend

@@ -124,14 +124,14 @@ class SourceState(Base):
 
 
 class Seller(Base):
-    """A sales rep (or admin) account. Passwords are stored as PBKDF2-SHA256 hashes."""
+    """A sales rep (or admin) account. The password is stored in plain text (team decision, see README)."""
 
     __tablename__ = "sellers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(200))
-    password_hash: Mapped[str] = mapped_column(String(300))
+    password: Mapped[str] = mapped_column(String(300))
     role: Mapped[str] = mapped_column(String(20), default="seller")  # seller | admin
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
