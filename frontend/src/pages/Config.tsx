@@ -261,7 +261,7 @@ export default function Config() {
             role="tab"
             aria-selected={tab === id}
             onClick={() => setTab(id)}
-            className={`-mb-[2px] px-5 py-3 font-bold transition-colors ${tab === id ? 'bg-ink text-white' : 'text-ink-2 hover:bg-band'}`}
+            className={`-mb-[2px] border-b-2 px-5 py-3 font-bold transition-colors ${tab === id ? 'border-ink bg-ink text-white' : 'border-transparent text-ink-2 hover:border-orange hover:text-orange-ink'}`}
           >
             {label}
           </button>

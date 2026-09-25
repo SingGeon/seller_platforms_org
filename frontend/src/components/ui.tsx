@@ -139,7 +139,7 @@ export function Avatar({ name, size = 28 }: { name: string | null; size?: number
   if (!name)
     return (
       <span
-        className="inline-flex items-center justify-center border-2 border-dashed border-line text-[11px] text-faint"
+        className="inline-flex shrink-0 items-center justify-center border-2 border-dashed border-line text-[11px] text-faint"
         style={{ width: size, height: size }}
         title="Neasignat"
       >
@@ -153,7 +153,7 @@ export function Avatar({ name, size = 28 }: { name: string | null; size?: number
     .slice(0, 2)
   return (
     <span
-      className="inline-flex items-center justify-center bg-ink text-[11px] font-bold text-white"
+      className="inline-flex shrink-0 items-center justify-center bg-ink text-[11px] font-bold text-white"
       style={{ width: size, height: size }}
       title={name}
     >

@@ -399,12 +399,12 @@ export default function Company() {
 
           <Panel>
             <PanelTitle>Detalii</PanelTitle>
-            <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-3 p-5 text-[14px]">
+            <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-3 p-5 text-[14px]">
               <dt className="text-muted">Responsabil</dt>
-              <dd className="flex items-center gap-2 font-bold">
+              <dd className="flex min-w-0 items-center gap-2 font-bold">
                 <Avatar name={sellers.find((s) => s.id === sellerId)?.full_name ?? c.owner} size={22} />
                 {live ? (
-                  <select value={sellerId ?? ''} onChange={(e) => changeOwner(e.target.value)} className="h-8 min-w-0 flex-1 text-[13px]" aria-label="Responsabil">
+                  <select value={sellerId ?? ''} onChange={(e) => changeOwner(e.target.value)} className="h-8 w-full min-w-0 flex-1 truncate text-[13px]" aria-label="Responsabil">
                     <option value="">Neasignat</option>
                     {sellers.filter((s) => s.active).map((s) => (
                       <option key={s.id} value={s.id}>
@@ -448,8 +448,8 @@ export default function Company() {
                   role="tab"
                   aria-selected={tab === id}
                   onClick={() => setTab(id)}
-                  className={`-mb-[2px] px-5 py-3 font-bold transition-colors ${
-                    tab === id ? 'bg-ink text-white' : 'text-ink-2 hover:bg-band'
+                  className={`-mb-[2px] border-b-2 px-5 py-3 font-bold transition-colors ${
+                    tab === id ? 'border-ink bg-ink text-white' : 'border-transparent text-ink-2 hover:border-orange hover:text-orange-ink'
                   }`}
                 >
                   {label}
