@@ -121,9 +121,13 @@ class HostThrottle:
             "query.wikidata.org": 1.0,
             "api.ted.europa.eu": 0.5,
             "www.bing.com": 1.5,  # Bing News RSS, one request per company in bulk runs
-            "news.google.com": 2.0,  # bulk runs query it once per company; faster answers 503 for hours
+            # Answered 503 for hours after ~1,100 requests at 2 s (26 Sep 2026, targeted search of 977 companies).
+            "news.google.com": 3.0,
             "api.gleif.org": 1.0,  # 60 requests / minute
         }
+        # Hosts that block for a while once they start answering 429 / 503: every request waits this long instead of
+        # burning its retries, then the blocked request is tried once more.
+        self.cooldown: dict[str, float] = {"news.google.com": 900.0}
 
     async def wait(self, host: str) -> None:
         interval = self.min_interval.get(host, 0.0)
@@ -135,6 +139,13 @@ class HostThrottle:
             if delta < interval:
                 await asyncio.sleep(interval - delta)
             self._last[host] = time.monotonic()
+
+    def pause(self, host: str) -> float:
+        """Hold every request to `host` for its cooldown; returns the pause in seconds (0 when it has none)."""
+        seconds = self.cooldown.get(host, 0.0)
+        if seconds > 0:
+            self._last[host] = max(self._last.get(host, 0.0), time.monotonic() + seconds - self.min_interval.get(host, 0.0))
+        return seconds
 
 
 THROTTLE = HostThrottle()
@@ -154,25 +165,34 @@ async def polite_request(
     (DNS hiccups, dropped connections, read timeouts)."""
     host = urlparse(url).netloc
     base_delay = RETRY_BASE_DELAY if base_delay is None else base_delay
-    for attempt in range(retries + 1):
+    paused = False
+    attempt = 0
+    while True:
         await THROTTLE.wait(host)
         try:
             resp = await client.request(method, url, **kwargs)
         except httpx.TransportError as exc:
-            if attempt == retries:
+            if attempt >= retries:
                 raise
             delay = min(base_delay * 2**attempt, 60.0) + (random.uniform(0, 1) if base_delay else 0)
             log.info("%s %s -> %s, retrying in %.1fs", method, host, type(exc).__name__, delay)
             await asyncio.sleep(delay)
+            attempt += 1
             continue
-        if resp.status_code not in (429, 500, 502, 503, 504) or attempt == retries:
+        if resp.status_code not in (429, 500, 502, 503, 504):
+            return resp
+        if attempt >= retries:
+            if resp.status_code in (429, 503) and not paused and (seconds := THROTTLE.pause(host)):
+                log.warning("%s keeps answering %s: pausing every request to it for %.0f s", host, resp.status_code, seconds)
+                paused = True
+                continue  # THROTTLE.wait() holds this request until the pause is over, then it is tried once more
             return resp
         retry_after = resp.headers.get("retry-after")
         delay = float(retry_after) if retry_after and retry_after.isdigit() else base_delay * 2**attempt
         delay = min(delay, 60.0) + (random.uniform(0, 1) if base_delay else 0)
         log.info("%s %s -> %s, retrying in %.1fs", method, host, resp.status_code, delay)
         await asyncio.sleep(delay)
-    return resp  # pragma: no cover
+        attempt += 1
 
 
 async def get_json(client: httpx.AsyncClient, url: str, **kwargs: Any) -> Any:

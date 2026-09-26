@@ -285,3 +285,23 @@ def test_wikidata_pages_that_time_out_are_retried_smaller():
     companies = asyncio.run(go())
     assert len(companies) == 60
     assert 250 not in sizes and 60 in sizes and 50 in sizes  # 60 (=limit) -> 504 x retries, then 50 -> ok
+
+
+def test_a_blocking_host_pauses_every_request_then_retries_once(monkeypatch):
+    import asyncio as aio
+    import httpx as hx
+    from sales_pipeline.sources import base
+
+    monkeypatch.setattr(base.THROTTLE, "min_interval", {})
+    monkeypatch.setattr(base.THROTTLE, "cooldown", {"blocked.example": 0.05})
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.host)
+        return hx.Response(503 if len(calls) <= 3 else 200, text="ok")
+
+    async def run():
+        async with hx.AsyncClient(transport=hx.MockTransport(handler)) as c:
+            return await base.polite_request(c, "GET", "https://blocked.example/x", retries=2, base_delay=0)
+
+    assert aio.run(run()).status_code == 200 and len(calls) == 4  # 3 blocked answers, pause, one more try

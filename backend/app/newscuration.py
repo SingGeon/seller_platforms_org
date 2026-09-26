@@ -247,6 +247,7 @@ async def replace_companies(client: httpx.AsyncClient, *, target: int, countries
 async def curate(
     sf: sessionmaker, *, min_stories: int = MIN_STORIES, search_below: int = SEARCH_BELOW, search: bool = True,
     target: int | None = None, countries: list[str] | None = None, analyze: bool = True, concurrency: int = 2,
+    only_ids: list[int] | None = None,
     client: httpx.AsyncClient | None = None, say: Callable[[str], None] = print,
 ) -> dict[str, Any]:
     from .bootstrap import local_press_news, record_news_sources
@@ -266,7 +267,7 @@ async def curate(
         if search:
             say("2/5 Business, tech and security press feeds")
             stats["press"] = await local_press_news(client, ids, say)
-            todo = stories_below(ids, search_below)
+            todo = stories_below(only_ids if only_ids is not None else ids, search_below)
             say(f"3/5 Targeted news search for {len(todo)} companies with fewer than {search_below} topical stories")
             stats["search"] = await search_companies(client, todo, concurrency=concurrency, say=say)
             record_news_sources(sf, stats)
@@ -304,13 +305,15 @@ def main() -> None:
     parser.add_argument("--countries", default=None, help="countries for new companies (default: those already stored)")
     parser.add_argument("--no-analyze", action="store_true")
     parser.add_argument("--concurrency", type=int, default=2, help="companies searched in parallel (Google News blocks above ~2)")
+    parser.add_argument("--only", default=None, help="search only these company ids (comma-separated), e.g. the ones a blocked run missed")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
     from .db import SessionLocal
 
     countries = [c.strip().upper() for c in args.countries.split(",") if c.strip()] if args.countries else None
     asyncio.run(curate(SessionLocal, min_stories=args.min_stories, search_below=args.search_below, search=not args.no_search,
-                       target=args.target, countries=countries, analyze=not args.no_analyze, concurrency=args.concurrency))
+                       target=args.target, countries=countries, analyze=not args.no_analyze, concurrency=args.concurrency,
+                       only_ids=[int(i) for i in args.only.split(",") if i.strip()] if args.only else None))
 
 
 if __name__ == "__main__":
