@@ -70,8 +70,8 @@ SOURCES: list[SourceSpec] = [
                limits="Google News: 1 request / 2 s, answers 503 for hours if queried faster. Bing News RSS: no key, ~12 latest "
                       "articles, 1 request / 1.5 s. GDELT: 1 request / 5 s. NewsAPI: 100/day, dev-only, 24 h delay, 1 month history.",
                fallback="Google News and Bing News cover each other; GDELT and NewsAPI are supplements."),
-    SourceSpec("business_press", "RO / MD business press RSS: ZF, Economica, Profit, StartupCafe, HotNews, G4Media, Biziday, "
-               "NewsMaker, Ziarul de Garda, Bani.md, Diez", E, "news", "feed", 60, ["all"],
+    SourceSpec("business_press", "Business, tech and security press RSS (40 outlets, RO / MD / DE / AT): ZF, Profit, Bursa, Economedia, "
+               "Forbes RO, HotNews, NewsMaker, Handelsblatt, WirtschaftsWoche, heise, Der Standard, Security-Insider, ...", E, "news", "feed", 60, ["all"],
                limits="No key; one request per outlet (WordPress feeds paged for older articles) covers every company at once; "
                       "articles are matched to companies by name (one-word names only with exact capitalisation).",
                fallback="Google News / Bing News per company."),

@@ -178,6 +178,21 @@ async def local_press_news(client: httpx.AsyncClient, ids: list[int], say: Calla
     return {"articles": len(docs), "companies_named": len(matched), "new_documents": new, "failed_feeds": errors}
 
 
+def record_news_sources(sf: sessionmaker, stats: dict[str, Any]) -> None:
+    """Show on /sources that the press feeds and the per-company news search ran (they run here, not as discovery syncs)."""
+    from .discovery import record_source_run
+
+    if press := stats.get("press"):
+        failed = press.get("failed_feeds") or {}
+        record_source_run(sf, "business_press", items=press.get("articles", 0), new_documents=press.get("new_documents", 0),
+                          failed=len(failed), error=("failed feeds: " + ", ".join(failed)) if failed else None)
+    news = stats.get("news") or stats.get("search")
+    if news:
+        companies = news.get("companies", news.get("companies_with_news", 0))
+        record_source_run(sf, "company_news", items=companies, new_documents=news.get("news_documents", news.get("new_documents", 0)),
+                          failed=news.get("failed", 0), error=f"{news['failed']} companies failed" if news.get("failed") else None)
+
+
 async def bootstrap(
     sf: sessionmaker,
     *,
@@ -214,6 +229,9 @@ async def bootstrap(
             ids.append(company.id)
         ids = list(dict.fromkeys(ids))
         stats.update(registry_records=len(records), companies=len(ids), companies_created=created)
+        from .discovery import record_source_run
+
+        record_source_run(sf, "wikidata", items=len(records), new_companies=created)
         say(f"  {len(ids)} companies ({created} new)")
 
         if news and ids:
@@ -221,6 +239,7 @@ async def bootstrap(
             say(f"2/4 News for {len(todo)} companies (skipping {len(ids) - len(todo)} refreshed in the last {NEWS_FRESH_HOURS} h)")
             stats["press"] = await local_press_news(client, ids, say)
             stats["news"] = await fetch_news(sf, client, todo, gdelt=gdelt, concurrency=news_concurrency, say=say)
+            record_news_sources(sf, stats)
 
         if analyze and ids:
             say(f"3/4 Signal analysis and scoring for {len(ids)} companies")
@@ -269,6 +288,7 @@ async def refresh_news(
     finally:
         if own_client:
             await client.aclose()
+    record_news_sources(sf, stats)
     from .newscuration import tag_documents, update_status
 
     tag_documents(ids)  # topics of the new articles, then which curated companies still have enough topical news

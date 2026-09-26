@@ -249,7 +249,8 @@ async def curate(
     target: int | None = None, countries: list[str] | None = None, analyze: bool = True, concurrency: int = 2,
     client: httpx.AsyncClient | None = None, say: Callable[[str], None] = print,
 ) -> dict[str, Any]:
-    from .bootstrap import local_press_news
+    from .bootstrap import local_press_news, record_news_sources
+    from .discovery import record_source_run
     from .orchestrator import execute_run
 
     started = time.monotonic()
@@ -268,6 +269,7 @@ async def curate(
             todo = stories_below(ids, search_below)
             say(f"3/5 Targeted news search for {len(todo)} companies with fewer than {search_below} topical stories")
             stats["search"] = await search_companies(client, todo, concurrency=concurrency, say=say)
+            record_news_sources(sf, stats)
             tag_documents(ids)
         stats["status"] = update_status(ids, min_stories)
         mongo.db()[mongo.COMPANIES].update_many({"_id": {"$in": ids}}, {"$set": {"news_profile.curated_at": utcnow()}})
@@ -276,6 +278,7 @@ async def curate(
             say(f"4/5 Replacing hidden companies until {target} are active ({', '.join(countries)})")
             stats["replace"] = await replace_companies(client, target=target, countries=countries, min_stories=min_stories,
                                                        concurrency=concurrency, say=say)
+            record_source_run(sf, "wikidata", items=stats["replace"]["candidates"], new_companies=stats["replace"]["added"])
     finally:
         if own_client:
             await client.aclose()

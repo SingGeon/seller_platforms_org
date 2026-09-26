@@ -145,3 +145,19 @@ def test_thousand_companies_load(seeded):
     stats = asyncio.run(bootstrap(seeded, countries=["RO", "MD", "DE"], target=1002, llm=HeuristicBackend(), client=registry_client(400), say=print))
     print("elapsed", round(time.monotonic() - t0, 1), stats["totals"])
     assert stats["totals"]["companies"] >= 1000
+
+
+def test_bootstrap_and_news_refresh_show_their_sources_as_run(seeded):
+    from app.bootstrap import refresh_news
+    from app.models import SourceState
+
+    asyncio.run(bootstrap(seeded, countries=["RO"], target=5, analyze=False, client=registry_client(10), say=lambda m: None))
+    with seeded() as db:
+        states = {s.name: s for s in db.query(SourceState)}
+    assert states["wikidata"].last_status == "ok" and states["wikidata"].last_stats["new_companies"] == 5
+    assert states["company_news"].last_status == "ok" and states["company_news"].last_stats["new_documents"] > 0
+    assert states["business_press"].last_run_at is not None  # the mocked feeds answer 404, so it ran with errors
+
+    asyncio.run(refresh_news(seeded, analyze=False, fresh_hours=0, client=registry_client(10), say=lambda m: None))
+    with seeded() as db:
+        assert db.get(SourceState, "company_news").last_run_at > states["company_news"].last_run_at

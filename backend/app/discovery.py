@@ -94,6 +94,27 @@ def get_state(db: Session, name: str) -> SourceState:
     return state
 
 
+def record_source_run(sf: sessionmaker, name: str, *, items: int = 0, new_documents: int = 0, new_companies: int = 0,
+                      failed: int = 0, error: str | None = None, duration_seconds: float | None = None) -> None:
+    """Record the outcome of a source that runs inside bootstrap, the daily news refresh or the news curation
+    (company_news, business_press, wikidata), so /sources shows when it last ran and how it went."""
+    now = utcnow()
+    with sf() as db:
+        state = get_state(db, name)
+        spec = BY_NAME.get(name)
+        state.last_run_at = now
+        state.next_run_at = now + timedelta(minutes=state.interval_minutes or (spec.interval_minutes if spec else 1440))
+        state.last_stats = {"items": items, "new_documents": new_documents, "new_companies": new_companies, "failed": failed,
+                            **({"duration_seconds": duration_seconds} if duration_seconds is not None else {})}
+        if error and not items and not new_documents:
+            state.last_status, state.last_error = "error", error[:2000]
+        else:
+            state.last_status, state.last_error, state.last_success_at = "ok", error[:2000] if error else None, now
+            state.total_items = (state.total_items or 0) + items
+            state.total_new_companies = (state.total_new_companies or 0) + new_companies
+        db.commit()
+
+
 # ------------------------------------------------------------------ entity resolution
 
 
