@@ -50,6 +50,9 @@ jobs:
           test -n "$mongo" || { echo "::error::No Atlas URL: add secret MONGO_URI, or a MONGO_URI= / MONGO_CLOUD_URI= line in ALFA"; exit 1; }
           echo "::add-mask::$pg"; echo "::add-mask::$mongo"
           { echo "DATABASE_URL=$pg"; echo "MONGO_URI=$mongo"; } >> "$GITHUB_ENV"
+      - name: Add new services and questions from the seed (existing ones stay as they are)
+        working-directory: backend
+        run: python -m app.seed
       - name: Refresh news, analyse and re-score
         working-directory: backend
         # --fresh-hours 20: a company that got news in yesterday's run is fetched again today (24 would skip it)

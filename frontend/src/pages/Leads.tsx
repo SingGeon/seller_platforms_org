@@ -2,6 +2,7 @@ import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, Plus, Search } 
 import { useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { STAGES, getCompanies, getServices, isNew, timeAgo, topSignal } from '../data/api'
+import { OTHER_INDUSTRY, industryGroup } from '../data/industry'
 import type { Company, ServiceId } from '../data/types'
 import { Avatar, Button, NewBadge, PageHeader, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, StageTag, btn } from '../components/ui'
 
@@ -11,12 +12,6 @@ export const bestService = (c: Company) =>
 type SortKey = 'score' | 'updated' | 'name'
 
 const PAGE_SIZES = [25, 50, 100]
-
-/** Markets offered in the country filter even before a company from them is loaded (ISO 3166-1 alpha-2). */
-const MARKETS = [
-  'RO', 'MD', 'UA', 'BG', 'HU', 'PL', 'CZ', 'SK', 'AT', 'DE', 'CH', 'NL', 'BE', 'LU', 'FR', 'IT', 'ES', 'PT', 'GB', 'IE',
-  'DK', 'SE', 'NO', 'FI', 'EE', 'LV', 'LT', 'SI', 'HR', 'RS', 'GR', 'CY', 'MT', 'TR', 'IL', 'AE', 'US', 'CA',
-]
 
 const regionName = (() => {
   try {
@@ -74,17 +69,17 @@ export default function Leads() {
       if (hit) hit.n++
       else counts.set(c.country, { name: c.countryName && c.countryName !== '—' ? c.countryName : regionName(c.country), n: 1 })
     }
-    const withLeads = [...counts.entries()].sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name, 'ro'))
-    const others = MARKETS.filter((code) => !counts.has(code))
-      .map((code) => [code, regionName(code)] as const)
-      .sort((a, b) => a[1].localeCompare(b[1], 'ro'))
-    return { withLeads, others }
+    return [...counts.entries()].sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name, 'ro'))
   }, [all])
 
   const industries = useMemo(() => {
     const counts = new Map<string, number>()
-    for (const c of all) if (c.industry && c.industry !== '—') counts.set(c.industry, (counts.get(c.industry) ?? 0) + 1)
-    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ro'))
+    for (const c of all) {
+      const group = industryGroup(c.industry)
+      if (group) counts.set(group, (counts.get(group) ?? 0) + 1)
+    }
+    // Largest sectors first; "Altele" always last.
+    return [...counts.entries()].sort((a, b) => Number(a[0] === OTHER_INDUSTRY) - Number(b[0] === OTHER_INDUSTRY) || b[1] - a[1])
   }, [all])
 
   const rows = useMemo(() => {
@@ -94,7 +89,7 @@ export default function Leads() {
       .filter((c) => !needle || [c.name, c.domain, c.industry].some((f) => f.toLowerCase().includes(needle)))
       .filter((c) => !svc || bestService(c) === svc)
       .filter((c) => !country || c.country === country)
-      .filter((c) => !industry || c.industry === industry)
+      .filter((c) => !industry || industryGroup(c.industry) === industry)
       .filter((c) => !stage || c.stage === stage)
       .filter((c) => !onlyNew || isNew(c))
       .sort((a, b) =>
@@ -192,22 +187,11 @@ export default function Leads() {
         </select>
         <select value={country} onChange={(e) => set('country', e.target.value)} className="h-10 max-w-60" aria-label="Țară">
           <option value="">Toate țările</option>
-          <optgroup label="Cu companii">
-            {countries.withLeads.map(([code, { name, n }]) => (
-              <option key={code} value={code}>
-                {name} ({n})
-              </option>
-            ))}
-          </optgroup>
-          {countries.others.length > 0 && (
-            <optgroup label="Alte piețe (încă fără companii)">
-              {countries.others.map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
-            </optgroup>
-          )}
+          {countries.map(([code, { name, n }]) => (
+            <option key={code} value={code}>
+              {name} ({n})
+            </option>
+          ))}
         </select>
         <select value={stage} onChange={(e) => set('stage', e.target.value)} className="h-10" aria-label="Stadiu">
           <option value="">Toate stadiile</option>
