@@ -541,25 +541,27 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 | Task | Status |
 |---|---|
 | GIG-11 Kick-off: MVP, roles, hourly plan | Done: plan, architecture proposal and scoring philosophy in the team Notion page |
-| GIG-14 API keys and limits | Research done: ~45 public sources and APIs checked for price, limits and refresh mechanism, about 40 tested live; catalogue in Notion. Keys (SerpAPI, Adzuna, NewsAPI, LLM) still to be created |
-| GIG-18 Initial config with 2 demo services | Partly done: the UI ships Automation, Cyber and Digital question sets; still to align with the APA + Cyber seed in the backend |
-| GIG-19 Target company list | To do. Crunchbase's free API no longer exists, so the list goes through `POST /companies/import` (CSV) |
-| GIG-24 LinkedIn manual validation | Partly done: "LinkedIn" button on the company record for a manual check; the form behind `PUT /companies/{id}/linkedin` is still to do |
-| GIG-31 Validate scoring on Annex 1 | To do (calibration set in `pipeline/calibration/`) |
+| GIG-14 API keys and limits | Done: ~45 public sources and APIs researched for price, limits and refresh mechanism, about 40 tested live; catalogue in Notion and `docs/data-sources.md` |
+| GIG-18 Initial config with demo services | Done: the UI shows every service the server has (six seeded: APA, Cyber, Cloud, Data & AI, ERP / CRM, IoT) and admins add more with "Serviciu nou" |
+| GIG-19 Target company list | Done: 984 real companies (RO, MD, DE, AT) loaded from open registries; CSV import through `POST /companies/import` |
+| GIG-24 LinkedIn manual validation | Done: the "LinkedIn" button on the company record opens a manual company search (no scraping) |
+| GIG-31 Validate scoring on Annex 1 | Done: 12-case Annex 1 calibration set in `pipeline/calibration/` with `run_calibration.py`; offline backend 7/12 accuracy, 4/4 yes-precision |
 | GIG-33 Frontend setup | Done: React + TypeScript + Vite + Tailwind, Orange design tokens, CRM layout, routing |
-| GIG-34 Leads page | Done, live data |
-| GIG-35 Company record | Done, live data: stage, owner, notes, timeline, outreach message, HubSpot |
-| GIG-36 Configuration page | Done: questions, rules, ICP and scoring load from and save to the API |
-| GIG-37 Runs page | Done, live source status and "Run now" |
-| GIG-39 Value-proposition library | To do |
-| GIG-41 Final demo dataset | To do |
-| GIG-42 Testing, bug bash, code freeze at H33 | To do |
-| GIG-43 Jury presentation | To do |
-| GIG-44 5-minute demo script and backup video | To do |
-| GIG-45 README, architecture docs, deploy | In progress: web application section above and `frontend/README.md` |
+| GIG-34 Leads page | Done, live data: multi-select filters (service, industry sector, country, stage) with "Aplică filtrele", pagination, CSV export |
+| GIG-35 Company record | Done, live data: stage, owner ("Preia lead-ul"), notes, timeline, signals with evidence, outreach message, HubSpot |
+| GIG-36 Configuration page | Done: questions, rules, ICP, scoring and new services, saved to the API; read-only for sales managers |
+| GIG-37 Runs page | Done: live source status; admins start runs |
+| GIG-39 Value-proposition library | Done: a value proposition per service, used by the contact messages and set when an admin creates a service |
+| GIG-41 Final demo dataset | Done: live data only (no demo data in the app); 984 companies refreshed daily by the cloud job |
+| GIG-42 Testing, bug bash, code freeze | Done: frontend QA pass with admin and sales-manager accounts, every issue found fixed (see git history) |
+| GIG-43 Jury presentation | Done: slide deck in the Orange style |
+| GIG-44 5-minute demo script and backup video | Done: promo videos (RO and EN) with music as backup |
+| GIG-45 README, architecture docs, deploy | Done: this README and `frontend/README.md`; frontend on Netlify, API on Render |
 
-**Next frontend step:** a screen for admins to manage seller accounts (the API is ready: `/sellers`), and the manual
-LinkedIn validation form behind `PUT /companies/{id}/linkedin`.
+**Also delivered on the frontend:** login-only home with admin-created accounts, admin team monitoring and
+sales-manager accounts, live pipeline (updates every 10 s, a lead joins it from its page and a sales manager who moves
+a free lead becomes its owner), first-run guide ("Ghid rapid"), business-impact panel for admins, clear states while
+the server wakes up or is down, desktop-only notice on phones.
 
 ## Jira mapping (backend / data / AI: Gheorghe Singereanu)
 
