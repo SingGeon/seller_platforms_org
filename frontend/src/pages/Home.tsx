@@ -3,7 +3,6 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { useSession } from '../auth/session'
 import { bestService, getCompanies, getRecentSignals, getServices, getSources, isNew, signalHeadline, timeAgo, useDataVersion } from '../data/api'
-import type { ServiceId } from '../data/types'
 import { Panel, PanelTitle, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, btn, serviceColor } from '../components/ui'
 
 function StatTile({ label, value, note, to }: { label: string; value: number | string; note: string; to: string }) {
@@ -92,7 +91,9 @@ export default function Home() {
                     <p className="font-bold leading-snug">{signalHeadline(s)}</p>
                     <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
                       <span className="font-bold text-ink">{s.company.name}</span>
-                      {s.service && <ServiceTag id={s.service as ServiceId} className="!text-[12px] !font-normal" />}
+                      {s.services.map((id) => (
+                        <ServiceTag key={id} id={id} className="!text-[12px] !font-normal" />
+                      ))}
                       <span>
                         {s.source} · {timeAgo(s.date)}
                       </span>

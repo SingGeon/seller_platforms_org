@@ -37,8 +37,8 @@ function SignalCard({ s }: { s: Signal }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="mb-1.5 flex items-center gap-3">
-            {s.service ? (
-              <ServiceTag id={s.service} />
+            {s.services.length ? (
+              s.services.map((id) => <ServiceTag key={id} id={id} />)
             ) : (
               <span className="bg-danger-bg px-2 py-0.5 text-[12px] font-bold text-danger">Regulă negativă</span>
             )}

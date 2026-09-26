@@ -26,6 +26,8 @@ export interface Signal {
   id: string
   questionId: string
   service: ServiceId | null
+  /** Every service this article counts for: one article scored for several services is shown once. */
+  services: ServiceId[]
   title: string
   quote: string
   source: string

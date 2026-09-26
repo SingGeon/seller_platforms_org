@@ -137,7 +137,7 @@ export function signalHeadline(s: Signal): string {
  * null when no service has evidence yet: the score then comes only from the ICP fit, which does not point at a service.
  */
 export function bestService(c: Company): ServiceId | null {
-  const withEvidence = new Set(c.signals.filter((s) => s.points > 0 && s.service).map((s) => s.service as ServiceId))
+  const withEvidence = new Set(c.signals.filter((s) => s.points > 0).flatMap((s) => s.services))
   const ranked = Object.entries(c.serviceScores).filter(([id]) => withEvidence.has(id)).sort((a, b) => b[1] - a[1])
   return ranked[0]?.[0] ?? null
 }

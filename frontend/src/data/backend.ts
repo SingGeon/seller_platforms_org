@@ -107,12 +107,32 @@ function signalsFrom(detail: ApiDashboardCompany, services: Map<number, ServiceI
       out.push({
         id: `${score.service_id}-${i}`,
         questionId: item.question_id != null ? `q:${item.question_id}` : `event:${item.event_type ?? i}`,
-        service, title: item.label, quote: ev.quote ?? '', source: hostOf(ev.url), sourceType: sourceTypeOf(ev.url, item.kind),
-        url: ev.url, date: toIso(ev.date, score.computed_at), confidence: item.confidence, points: Math.round(item.points),
+        service, services: service ? [service] : [], title: item.label, quote: ev.quote ?? '', source: hostOf(ev.url),
+        sourceType: sourceTypeOf(ev.url, item.kind), url: ev.url, date: toIso(ev.date, score.computed_at), confidence: item.confidence,
+        points: Math.round(item.points),
       })
     }
   }
-  return out.sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
+  return mergeByLink(out)
+}
+
+/**
+ * The backend scores each service on its own, so one article can come back once per service. Show it once: signals
+ * with the same link (and the same direction, so a negative is never hidden by a positive) merge into the one with
+ * the most points, which lists every service the article counts for. Scores are untouched.
+ */
+function mergeByLink(signals: Signal[]): Signal[] {
+  const groups = new Map<string, Signal[]>()
+  for (const s of signals) {
+    const key = `${s.url}|${s.points > 0 ? '+' : '-'}`
+    groups.set(key, [...(groups.get(key) ?? []), s])
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const ranked = [...group].sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
+      return { ...ranked[0], services: [...new Set(ranked.flatMap((s) => s.services))] }
+    })
+    .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
 }
 
 // ------------------------------------------------------------------ load everything
