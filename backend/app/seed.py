@@ -134,6 +134,186 @@ SERVICES = [
             },
         ],
     },
+    {
+        "name": "Cloud & Infrastructure",
+        "slug": "cloud",
+        "description": "Cloud migration, hybrid infrastructure, data centre, hosting, backup and disaster recovery.",
+        "value_proposition": (
+            "Orange Systems moves workloads to the cloud or a local data centre without downtime: assessment, landing zone, "
+            "migration waves, backup and disaster recovery, then 24/7 operations with clear cost control."
+        ),
+        "event_weights": {"tech_stack": "Medium", "leadership_change": "Low", "corporate_event:positive": "Medium", "corporate_event:negative": "Low"},
+        "icp": {
+            "markets": ["EU", "UK&I"],
+            "industries": ["Banking", "Financial Services", "Insurance", "Retail", "Healthcare", "Manufacturing", "Logistics", "Energy", "Public Sector", "Technology"],
+            "countries": ["MD", "RO"],
+            "employee_min": 100,
+            "employee_max": 1_000_000,
+            "min_fit": 40,
+        },
+        "questions": [
+            {
+                "text": "Is the company migrating to the cloud, moving or closing a data centre, or choosing a hosting or backup provider?",
+                "weight": "High", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["cloud migration", "move to the cloud", "data center", "data centre", "hosting", "backup", "disaster recovery", "migrare in cloud", "centru de date"],
+            },
+            {
+                "text": "Is the company hiring cloud engineers, DevOps, site reliability or infrastructure administrators?",
+                "weight": "High", "source_hint": "jobs", "lookback_days": 120,
+                "keywords": ["cloud engineer", "devops", "site reliability", "sre", "kubernetes", "system administrator", "infrastructure engineer", "aws", "azure"],
+            },
+            {
+                "text": "Has the company reported an IT outage, system downtime or capacity problems?",
+                "weight": "Medium", "source_hint": "news", "lookback_days": 180,
+                "keywords": ["outage", "downtime", "system failure", "capacity", "pana", "indisponibil"],
+            },
+            {
+                "text": "Is the company expanding into new markets, branches or digital channels that need more IT capacity?",
+                "weight": "Low", "source_hint": "news", "lookback_days": 365,
+                "keywords": ["expansion", "new branch", "new market", "e-commerce", "extindere", "filiala noua"],
+            },
+            {
+                "text": "Has the company recently signed a multi-year cloud or hosting contract with another provider?",
+                "weight": "Medium", "source_hint": "news", "lookback_days": 365, "is_negative": True,
+                "keywords": ["selects aws", "selects azure", "cloud contract", "hosting contract", "strategic partnership with microsoft"],
+            },
+        ],
+    },
+    {
+        "name": "Data & AI (BI)",
+        "slug": "data",
+        "description": "Data platforms, data warehouse, BI reporting, predictive analytics and applied AI on company data.",
+        "value_proposition": (
+            "Orange Systems turns scattered company data into decisions: a governed data platform, BI dashboards people "
+            "actually use, and predictive models for demand, churn and risk, delivered in short measurable iterations."
+        ),
+        "event_weights": {"leadership_change": "Medium", "tech_stack": "Medium", "corporate_event:positive": "Low", "corporate_event:negative": "Low"},
+        "icp": {
+            "markets": ["EU", "UK&I"],
+            "industries": ["Banking", "Financial Services", "Insurance", "Retail", "Telecommunications", "Energy", "Manufacturing", "Logistics", "Healthcare"],
+            "countries": ["MD", "RO"],
+            "employee_min": 200,
+            "employee_max": 1_000_000,
+            "min_fit": 40,
+        },
+        "questions": [
+            {
+                "text": "Is the company building a data warehouse, data platform, BI reporting or predictive analytics?",
+                "weight": "High", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["data warehouse", "data platform", "data lake", "business intelligence", "power bi", "tableau", "predictive analytics", "analiza datelor"],
+            },
+            {
+                "text": "Is the company hiring data engineers, data analysts, data scientists or BI developers?",
+                "weight": "High", "source_hint": "jobs", "lookback_days": 120,
+                "keywords": ["data engineer", "data analyst", "data scientist", "bi developer", "analytics engineer", "machine learning", "etl"],
+            },
+            {
+                "text": "Has the company appointed a Chief Data Officer, Head of Data or Head of Analytics?",
+                "weight": "Medium", "source_hint": "news", "lookback_days": 180,
+                "keywords": ["chief data officer", "cdo", "head of data", "head of analytics", "appointed", "joins as"],
+            },
+            {
+                "text": "Does the company talk about data-driven decisions, personalisation or using AI on its own data?",
+                "weight": "Low", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["data-driven", "personalisation", "personalization", "artificial intelligence", "generative ai", "inteligenta artificiala"],
+            },
+            {
+                "text": "Does the company already run a large in-house data and analytics team?",
+                "weight": "Medium", "source_hint": "any", "lookback_days": 730, "is_negative": True,
+                "keywords": ["in-house data team", "data center of excellence", "analytics centre of excellence", "internal data science team"],
+            },
+        ],
+    },
+    {
+        "name": "ERP / CRM & Integration",
+        "slug": "erp",
+        "description": "ERP and CRM implementation or replacement (SAP, Microsoft Dynamics, Salesforce, 1C) and system integration.",
+        "value_proposition": (
+            "Orange Systems implements and integrates ERP and CRM so finance, sales and operations work from one set of "
+            "numbers: fit-gap, migration from legacy systems, integrations with the rest of the landscape and support."
+        ),
+        "event_weights": {"corporate_event:positive": "High", "leadership_change": "Medium", "tech_stack": "Medium", "corporate_event:negative": "Low"},
+        "icp": {
+            "markets": ["EU"],
+            "industries": ["Manufacturing", "Retail", "Logistics", "Transportation", "Energy", "Healthcare", "Financial Services"],
+            "countries": ["MD", "RO"],
+            "employee_min": 100,
+            "employee_max": 1_000_000,
+            "min_fit": 40,
+        },
+        "questions": [
+            {
+                "text": "Is the company implementing, replacing or tendering an ERP or CRM system (SAP, Microsoft Dynamics, Salesforce, Oracle, 1C)?",
+                "weight": "High", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["erp", "crm", "sap", "s/4hana", "dynamics 365", "salesforce", "oracle", "1c", "implementare erp", "sistem erp"],
+            },
+            {
+                "text": "Has the company gone through a merger, acquisition or reorganisation that requires integrating systems?",
+                "weight": "High", "source_hint": "news", "lookback_days": 365,
+                "keywords": ["merger", "acquisition", "acquires", "reorganisation", "fuziune", "achizitie", "preluare"],
+            },
+            {
+                "text": "Is the company hiring ERP consultants, SAP / Dynamics specialists or integration developers?",
+                "weight": "Medium", "source_hint": "jobs", "lookback_days": 120,
+                "keywords": ["erp consultant", "sap consultant", "dynamics developer", "salesforce developer", "integration developer", "1c programmer"],
+            },
+            {
+                "text": "Does the company mention legacy systems, manual processes or disconnected tools slowing it down?",
+                "weight": "Low", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["legacy system", "manual process", "spreadsheets", "disconnected systems", "sisteme vechi"],
+            },
+            {
+                "text": "Has the company just completed an ERP or CRM rollout with another integrator?",
+                "weight": "Medium", "source_hint": "news", "lookback_days": 365, "is_negative": True,
+                "keywords": ["go-live", "successfully implemented", "completed the implementation", "went live"],
+            },
+        ],
+    },
+    {
+        "name": "IoT & Telecom",
+        "slug": "iot",
+        "description": "Connected sites and fleets: sensors, monitoring, industrial IoT, private networks and site connectivity.",
+        "value_proposition": (
+            "Orange Systems connects factories, warehouses, fleets and sites: sensors and monitoring, industrial IoT platforms, "
+            "private 4G / 5G and secure links between locations, backed by the Orange network."
+        ),
+        "event_weights": {"corporate_event:positive": "Medium", "tech_stack": "Low", "leadership_change": "Low", "corporate_event:negative": "Low"},
+        "icp": {
+            "markets": ["EU"],
+            "industries": ["Manufacturing", "Logistics", "Transportation", "Energy", "Retail", "Public Sector", "Aviation"],
+            "countries": ["MD", "RO"],
+            "employee_min": 100,
+            "employee_max": 1_000_000,
+            "min_fit": 40,
+        },
+        "questions": [
+            {
+                "text": "Is the company opening new factories, warehouses, sites or vehicle fleets that need monitoring and connectivity?",
+                "weight": "High", "source_hint": "news", "lookback_days": 365,
+                "keywords": ["new factory", "new plant", "new warehouse", "logistics centre", "fleet", "fabrica noua", "depozit nou", "parc auto"],
+            },
+            {
+                "text": "Does the company mention IoT, sensors, telemetry, smart metering, predictive maintenance or Industry 4.0?",
+                "weight": "High", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["iot", "internet of things", "sensors", "telemetry", "smart metering", "predictive maintenance", "industry 4.0", "senzori"],
+            },
+            {
+                "text": "Is the company expanding its communications network, private 5G or connectivity between sites?",
+                "weight": "Medium", "source_hint": "any", "lookback_days": 365,
+                "keywords": ["private 5g", "private network", "connectivity", "wan", "sd-wan", "fiber", "retea", "conectivitate"],
+            },
+            {
+                "text": "Is the company hiring IoT, automation (OT) or network engineers?",
+                "weight": "Medium", "source_hint": "jobs", "lookback_days": 120,
+                "keywords": ["iot engineer", "embedded", "scada", "plc", "ot engineer", "network engineer"],
+            },
+            {
+                "text": "Is the company itself a telecom operator or a direct competitor in connectivity?",
+                "weight": "High", "source_hint": "any", "lookback_days": 730, "is_negative": True,
+                "keywords": ["telecom operator", "mobile operator", "internet service provider", "operator de telefonie"],
+            },
+        ],
+    },
 ]
 
 GLOBAL_RULES = [

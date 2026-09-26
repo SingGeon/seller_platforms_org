@@ -3,7 +3,7 @@ import { Link } from 'react-router'
 import { useSession } from '../auth/session'
 import { getCompanies, getRecentSignals, getServices, getSources, isNew, timeAgo } from '../data/api'
 import type { ServiceId } from '../data/types'
-import { Panel, PanelTitle, SERVICE_COLOR, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, btn } from '../components/ui'
+import { Panel, PanelTitle, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, btn, serviceColor } from '../components/ui'
 import { bestService } from './Leads'
 
 function StatTile({ label, value, note, to }: { label: string; value: number | string; note: string; to: string }) {
@@ -133,7 +133,7 @@ export default function Home() {
                       <span className="num font-bold">{s.count}</span>
                     </div>
                     <div className="h-2 bg-band" aria-hidden>
-                      <div className={`h-full ${SERVICE_COLOR[s.id]}`} style={{ width: `${(s.count / maxCount) * 100}%` }} />
+                      <div className="h-full" style={{ width: `${(s.count / maxCount) * 100}%`, background: serviceColor(s.id) }} />
                     </div>
                   </Link>
                 </li>

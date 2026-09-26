@@ -2,6 +2,10 @@ import csv
 import io
 import time
 
+from app.seed import SERVICES
+
+SEEDED_SLUGS = {s["slug"] for s in SERVICES}
+
 
 def wait_for_run(client, run_id, timeout=60):
     deadline = time.time() + timeout
@@ -28,7 +32,7 @@ def company_id(client, name):
 def test_health_and_seeded_config(client):
     assert client.get("/health").json()["status"] == "ok"
     services = client.get("/services").json()
-    assert {s["slug"] for s in services} == {"apa", "cyber"}
+    assert {s["slug"] for s in services} == SEEDED_SLUGS == {"apa", "cyber", "cloud", "data", "erp", "iot"}
     apa = next(s for s in services if s["slug"] == "apa")
     questions = client.get(f"/services/{apa['id']}/questions").json()
     assert any("RPA developers" in q["text"] for q in questions)
@@ -96,7 +100,7 @@ def test_disqualified_lead_shows_reason(client):
     assert client.put(f"/companies/{cid}", json=body).status_code == 200
     leads = client.get("/leads", params={"tier": "Disqualified"}).json()
     siemens = [l for l in leads if l["company_id"] == cid]
-    assert len(siemens) == 2
+    assert len(siemens) == len(SEEDED_SLUGS)  # one disqualified lead per service
     assert siemens[0]["disqualification_reasons"][0]["rule"] == "Existing Orange Systems client"
 
 

@@ -13,11 +13,11 @@ import {
   NewBadge,
   Panel,
   PanelTitle,
-  SERVICE_COLOR,
   ScoreDelta,
   ScoreMeter,
   ServiceTag,
   SourceIcon,
+  serviceColor,
   StageTag,
   btn,
   sourceTypeLabel,
@@ -397,10 +397,10 @@ export default function Company() {
                   <li key={s.id}>
                     <div className="mb-1 flex items-center justify-between">
                       <ServiceTag id={s.id} />
-                      <span className="num font-bold">{c.serviceScores[s.id]}</span>
+                      <span className="num font-bold">{c.serviceScores[s.id] ?? 0}</span>
                     </div>
                     <div className="h-2 bg-band" aria-hidden>
-                      <div className={`h-full ${SERVICE_COLOR[s.id]}`} style={{ width: `${c.serviceScores[s.id]}%` }} />
+                      <div className="h-full" style={{ width: `${c.serviceScores[s.id] ?? 0}%`, background: serviceColor(s.id) }} />
                     </div>
                   </li>
                 ))}

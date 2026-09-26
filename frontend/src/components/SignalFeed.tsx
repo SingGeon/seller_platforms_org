@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getRecentSignals, timeAgo } from '../data/api'
-import type { ServiceId } from '../data/types'
-import { SERVICE_COLOR, SourceIcon } from './ui'
+import { SourceIcon, serviceColor } from './ui'
 
 const CARD_H = 88
 const GAP = 12
@@ -75,7 +74,7 @@ export default function SignalFeed() {
             >
               <span className="relative flex size-10 shrink-0 items-center justify-center bg-white/10 text-white">
                 <SourceIcon type={s.sourceType} size={18} />
-                {s.service && <span className={`absolute -bottom-1 -right-1 size-3 ${SERVICE_COLOR[s.service as ServiceId]}`} aria-hidden />}
+                {s.service && <span className="absolute -bottom-1 -right-1 size-3" style={{ background: serviceColor(s.service) }} aria-hidden />}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[15px] font-bold text-white">{s.company.name}</p>

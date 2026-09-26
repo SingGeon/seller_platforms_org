@@ -16,7 +16,7 @@ from app import mongo
 from sales_pipeline import HeuristicBackend
 from sales_pipeline.sources.base import THROTTLE
 
-from .api_test import wait_for_run
+from .api_test import SEEDED_SLUGS, wait_for_run
 
 NOW = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
 INDUSTRIES = ["banking", "air transport", "logistics", "telecommunications industry", "retail", "software industry"]
@@ -135,7 +135,7 @@ def test_bootstrap_api_and_dashboard(seeded):
         assert len(dash) >= 20
         de = next(d for d in dash if d["company"]["name"] == "DE Company 0 S.A.")
         assert de["registry_ref"]["wikidata"] == "QDE0"
-        assert {s["service_slug"] for s in de["scores"]} == {"apa", "cyber"}
+        assert {s["service_slug"] for s in de["scores"]} == SEEDED_SLUGS
         assert any(s["signals"] for s in de["scores"])
 
 

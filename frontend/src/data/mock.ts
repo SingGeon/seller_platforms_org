@@ -6,6 +6,10 @@ export const SERVICES: Service[] = [
   { id: 'automation', name: 'Automatizare cu agenți AI', short: 'Automatizare' },
   { id: 'cyber', name: 'Securitate cibernetică', short: 'Cyber' },
   { id: 'digital', name: 'Transformare digitală', short: 'Digital' },
+  { id: 'cloud', name: 'Cloud & infrastructură', short: 'Cloud' },
+  { id: 'data', name: 'Date & AI (BI)', short: 'Date & AI' },
+  { id: 'erp', name: 'ERP / CRM & integrare', short: 'ERP / CRM' },
+  { id: 'iot', name: 'IoT & telecom', short: 'IoT' },
 ]
 
 export const QUESTIONS: SignalQuestion[] = [
@@ -18,6 +22,14 @@ export const QUESTIONS: SignalQuestion[] = [
   { id: 'q7', service: 'digital', weight: 'high', polarity: 'positive', active: true, text: 'Compania are o inițiativă de transformare digitală, implementare ERP sau migrare în cloud?' },
   { id: 'q8', service: 'digital', weight: 'medium', polarity: 'positive', active: true, text: 'A existat o schimbare recentă în conducere (CEO, CIO, CTO, CISO)?' },
   { id: 'q9', service: 'digital', weight: 'low', polarity: 'positive', active: true, text: 'Compania a primit o finanțare nouă sau a anunțat o achiziție?' },
+  { id: 'q10', service: 'cloud', weight: 'high', polarity: 'positive', active: true, text: 'Compania migrează în cloud, își mută data center-ul sau caută furnizor de hosting / backup?' },
+  { id: 'q11', service: 'cloud', weight: 'medium', polarity: 'positive', active: true, text: 'Compania angajează cloud engineers, DevOps sau administratori de infrastructură?' },
+  { id: 'q12', service: 'data', weight: 'high', polarity: 'positive', active: true, text: 'Compania construiește un data warehouse, raportare BI sau proiecte de analiză predictivă?' },
+  { id: 'q13', service: 'data', weight: 'medium', polarity: 'positive', active: true, text: 'Compania angajează data engineers, data analysts sau data scientists?' },
+  { id: 'q14', service: 'erp', weight: 'high', polarity: 'positive', active: true, text: 'Compania implementează sau înlocuiește un ERP / CRM (SAP, Microsoft Dynamics, Salesforce, 1C)?' },
+  { id: 'q15', service: 'erp', weight: 'medium', polarity: 'positive', active: true, text: 'Compania a trecut printr-o fuziune sau achiziție care cere integrarea sistemelor?' },
+  { id: 'q16', service: 'iot', weight: 'high', polarity: 'positive', active: true, text: 'Compania deschide fabrici, depozite sau flote noi care au nevoie de senzori și monitorizare?' },
+  { id: 'q17', service: 'iot', weight: 'medium', polarity: 'positive', active: true, text: 'Compania extinde rețeaua de comunicații, 5G privat sau conectivitatea între sedii?' },
   { id: 'n1', service: null, weight: 'high', polarity: 'negative', active: true, text: 'Compania este un concurent direct (furnizor de servicii IT sau telecom)?' },
   { id: 'n2', service: null, weight: 'high', polarity: 'negative', active: true, text: 'Compania vinde exclusiv către consumatori (B2C)?' },
   { id: 'n3', service: null, weight: 'medium', polarity: 'negative', active: true, text: 'Compania are sub 20 de angajați?' },
@@ -177,7 +189,19 @@ const MOCK_COMPANIES: MockCompany[] = [
 ]
 
 // Demo data has no backend ids: nothing to save to PostgreSQL or send to HubSpot.
-export const COMPANIES: Company[] = MOCK_COMPANIES.map((c) => ({ ...c, sellerId: null, leadIds: [], bestServiceApiId: null }))
+// Scores for the newer services, kept below each company's best service so the demo's top signal stays consistent.
+const MORE_SCORES: Record<string, Record<string, number>> = {
+  'carpathia-bank': { cloud: 52, data: 70, erp: 34 },
+  'quanta-fintech': { cloud: 74, data: 68 },
+  nordvik: { iot: 72, erp: 48 },
+  danubius: { iot: 60, cloud: 50 },
+  helix: { erp: 64, data: 58 },
+  lumen: { iot: 66, cloud: 45 },
+}
+
+export const COMPANIES: Company[] = MOCK_COMPANIES.map((c) => ({
+  ...c, serviceScores: { ...c.serviceScores, ...MORE_SCORES[c.id] }, sellerId: null, leadIds: [], bestServiceApiId: null,
+}))
 
 export const SOURCES: SourceStatus[] = [
   { id: 'greenhouse', name: 'Greenhouse / Lever / Ashby', category: 'Joburi', tier: 'snapshot', lastRun: ago(0.6), status: 'ok', newItems: 14 },

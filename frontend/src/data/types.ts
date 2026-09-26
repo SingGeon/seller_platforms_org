@@ -1,4 +1,5 @@
-export type ServiceId = 'automation' | 'cyber' | 'digital'
+/** UI id of a service: the backend slug ("apa" keeps the older id "automation"). Services are configured on the server. */
+export type ServiceId = string
 
 export type Stage = 'nou' | 'calificat' | 'contactat' | 'negociere' | 'castigat' | 'descalificat'
 
@@ -53,6 +54,7 @@ export interface Company {
   bestServiceApiId: number | null
   score: number
   prevScore: number
+  /** 0-100 per service id; a service without a score is missing from the map. */
   serviceScores: Record<ServiceId, number>
   whyNow: string
   firstSeen: string

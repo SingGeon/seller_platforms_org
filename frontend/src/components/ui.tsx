@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
-import { stageLabel } from '../data/api'
+import { getServices, stageLabel } from '../data/api'
 import type { ServiceId, SourceType, Stage } from '../data/types'
 
 type Variant = 'primary' | 'secondary' | 'dark' | 'ghost'
@@ -39,23 +39,24 @@ export function Button({
   return <button type="button" className={`${btn(variant, size)} ${className}`} {...props} />
 }
 
-export const SERVICE_COLOR: Record<ServiceId, string> = {
-  automation: 'bg-svc-1',
-  cyber: 'bg-svc-2',
-  digital: 'bg-svc-3',
+// Each known service keeps its colour whatever else is configured (colour follows the service, not its position).
+// Palette checked for colour-blind separation; a colour never appears without the service name next to it.
+const SERVICE_SLOT: Record<string, number> = { automation: 1, cyber: 2, digital: 3, cloud: 4, data: 5, erp: 6, iot: 7 }
+const SLOTS = 7
+
+export function serviceColor(id: ServiceId): string {
+  let slot = SERVICE_SLOT[id]
+  if (!slot) slot = (Math.max(0, getServices().findIndex((s) => s.id === id)) % SLOTS) + 1
+  return `var(--color-svc-${slot})`
 }
 
-const SERVICE_SHORT: Record<ServiceId, string> = {
-  automation: 'Automatizare',
-  cyber: 'Cyber',
-  digital: 'Digital',
-}
+export const serviceShort = (id: ServiceId) => getServices().find((s) => s.id === id)?.short ?? id
 
 export function ServiceTag({ id, className = '' }: { id: ServiceId; className?: string }) {
   return (
     <span className={`inline-flex items-center gap-1.5 whitespace-nowrap text-[13px] font-bold ${className}`}>
-      <span className={`size-2.5 shrink-0 ${SERVICE_COLOR[id]}`} aria-hidden />
-      {SERVICE_SHORT[id]}
+      <span className="size-2.5 shrink-0" style={{ background: serviceColor(id) }} aria-hidden />
+      {serviceShort(id)}
     </span>
   )
 }

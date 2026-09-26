@@ -3,12 +3,17 @@
 import { del, getJson, postJson, putJson } from './client'
 import type { Company, Service, ServiceId, Signal, SignalQuestion, SourceStatus, SourceType, Stage, Weight } from './types'
 
-// Backend service slugs -> UI service ids (the UI colours and labels are keyed on these).
-const SLUG_TO_SERVICE: Record<string, ServiceId> = { apa: 'automation', automation: 'automation', cyber: 'cyber', digital: 'digital' }
+// Backend service slugs -> UI service ids: the slug itself, except "apa", which keeps the id the demo data uses.
+const SLUG_ALIAS: Record<string, ServiceId> = { apa: 'automation' }
+// Romanian [name, short label] for the services we know; any other service shows the name configured on the server.
 const SERVICE_NAMES: Record<ServiceId, [string, string]> = {
   automation: ['Automatizare cu agenți AI', 'Automatizare'],
   cyber: ['Securitate cibernetică', 'Cyber'],
   digital: ['Transformare digitală', 'Digital'],
+  cloud: ['Cloud & infrastructură', 'Cloud'],
+  data: ['Date & AI (BI)', 'Date & AI'],
+  erp: ['ERP / CRM & integrare', 'ERP / CRM'],
+  iot: ['IoT & telecom', 'IoT'],
 }
 
 // ------------------------------------------------------------------ API shapes (subset we read)
@@ -34,7 +39,7 @@ interface ApiSource {
 }
 
 // ------------------------------------------------------------------ mapping helpers
-const serviceIdFor = (slug: string): ServiceId => SLUG_TO_SERVICE[slug] ?? 'digital'
+const serviceIdFor = (slug: string): ServiceId => SLUG_ALIAS[slug] ?? slug
 const weightOf = (w: string): Weight => (w.toLowerCase() as Weight)
 
 const countryNames = (() => {
@@ -147,7 +152,7 @@ export async function loadBackendData(): Promise<BackendData> {
     const own = d.scores
     const eligible = own.filter((l) => !l.disqualified)
     const best = [...(eligible.length ? eligible : own)].sort((a, b) => b.final_score - a.final_score)[0]
-    const serviceScores = { automation: 0, cyber: 0, digital: 0 } as Record<ServiceId, number>
+    const serviceScores: Record<ServiceId, number> = Object.fromEntries(services.map((s) => [s.id, 0]))
     for (const l of own) {
       const sid = serviceById.get(l.service_id)
       if (sid) serviceScores[sid] = Math.round(l.final_score)
