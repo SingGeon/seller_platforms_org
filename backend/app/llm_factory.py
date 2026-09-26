@@ -20,7 +20,8 @@ def free_chain():
         keys = {"gemini": s.gemini_api_key, "groq": s.groq_api_key, "nvidia": s.nvidia_api_key, "mistral": s.mistral_api_key,
                 "openrouter": s.openrouter_api_key}
         _FREE_CHAIN = build_chain(keys, chain=tuple(p.strip() for p in s.llm_chain.split(",") if p.strip()),
-                                  overrides=s.llm_model_overrides, ollama_url=s.ollama_url) or False
+                                  overrides=s.llm_model_overrides, ollama_url=s.ollama_url,
+                                  ollama_model=s.ollama_model) or False
     return _FREE_CHAIN or None
 
 

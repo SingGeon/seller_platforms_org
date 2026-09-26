@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     llm_chain: str = "gemini,groq,nvidia,mistral,openrouter,ollama"
     llm_model_overrides: str = ""  # e.g. "gemini=gemini-3.5-flash|gemini-3.5-flash-lite"
     ollama_url: str = "http://localhost:11434"
+    ollama_model: str = ""  # local base model (default qwen2.5:3b), used when the cloud providers are out of quota
     llm_model: str = "claude-opus-5"
     llm_small_model: str = "claude-haiku-4-5"
     llm_effort: str = "medium"

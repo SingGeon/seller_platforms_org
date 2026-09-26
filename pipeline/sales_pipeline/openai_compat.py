@@ -37,6 +37,8 @@ class Provider:
     min_interval: float  # seconds between requests, to stay under the free requests-per-minute limit
     needs_key: bool = True
     busy_fallbacks: tuple[str, ...] = ()  # same provider, other models to try when one answers 503 "high demand"
+    timeout: float = 120.0  # seconds for one answer
+    max_concurrency: int = 2
 
 
 # Free tiers as of Sep 2026 (github.com/mnfst/awesome-free-llm-apis). Only Gemini was checked live; the other model
@@ -49,7 +51,10 @@ PROVIDERS: dict[str, Provider] = {
     "mistral": Provider("mistral", "https://api.mistral.ai/v1", "mistral-small-latest", "mistral-small-latest", 2.0),
     "openrouter": Provider("openrouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct:free",
                            "meta-llama/llama-3.3-70b-instruct:free", 3.5),
-    "ollama": Provider("ollama", "http://localhost:11434/v1", "qwen2.5:7b", "qwen2.5:7b", 0.0, needs_key=False),
+    # The base model when every cloud quota is used up: runs on this machine's CPU, so one request at a time and a long
+    # timeout. OLLAMA_MODEL picks another model.
+    "ollama": Provider("ollama", "http://localhost:11434/v1", "qwen2.5:3b", "qwen2.5:3b", 0.0, needs_key=False,
+                       timeout=900.0, max_concurrency=1),
 }
 DEFAULT_CHAIN = ("gemini", "groq", "nvidia", "mistral", "openrouter", "ollama")
 
@@ -71,15 +76,15 @@ class OpenAICompatBackend(AnthropicBackend):
     """AnthropicBackend's prompts and parsing over an OpenAI-compatible chat-completions endpoint."""
 
     def __init__(self, provider: Provider, api_key: str | None, *, client: httpx.AsyncClient | None = None,
-                 max_concurrency: int = 2, timeout: float = 120.0) -> None:
+                 max_concurrency: int | None = None, timeout: float | None = None) -> None:
         self.provider = provider
         self.name = provider.name
         self.model = provider.model
         self.small_model = provider.small_model
         self.effort = "medium"
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-        self._client = client or httpx.AsyncClient(timeout=timeout)
-        self._sem = asyncio.Semaphore(max_concurrency)
+        self._client = client or httpx.AsyncClient(timeout=timeout or provider.timeout)
+        self._sem = asyncio.Semaphore(max_concurrency or provider.max_concurrency)
         self._lock = asyncio.Lock()
         self._last = 0.0
         self._plain_json = False  # set when the provider rejects json_schema: ask for a JSON object instead
@@ -221,7 +226,7 @@ def parse_overrides(value: str) -> dict[str, tuple[str, str | None]]:
 
 
 def build_chain(keys: dict[str, str], *, chain: tuple[str, ...] = DEFAULT_CHAIN, overrides: str = "",
-                client: httpx.AsyncClient | None = None, ollama_url: str | None = None,
+                client: httpx.AsyncClient | None = None, ollama_url: str | None = None, ollama_model: str = "",
                 ollama_available: bool | None = None) -> ChainBackend | None:
     """The configured providers that have a key (Ollama: that answers), in chain order; None when there is none."""
     ov = parse_overrides(overrides)
@@ -240,7 +245,7 @@ def build_chain(keys: dict[str, str], *, chain: tuple[str, ...] = DEFAULT_CHAIN,
                     ollama_available = False
             if not ollama_available:
                 continue
-            p = replace(p, base_url=f"{base}/v1")
+            p = replace(p, base_url=f"{base}/v1", model=ollama_model or p.model, small_model=ollama_model or p.small_model)
         elif p.needs_key and not keys.get(name):
             continue
         if name in ov:

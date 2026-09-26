@@ -86,6 +86,15 @@ def test_only_providers_with_a_key_join_the_chain_and_models_can_be_overridden()
     assert parse_overrides("gemini=gemini-3.5-flash") == {"gemini": ("gemini-3.5-flash", None)}
 
 
+def test_the_local_base_model_comes_last_runs_one_request_at_a_time_and_can_be_changed():
+    chain = build_chain({"gemini": "k"}, ollama_available=True)
+    assert [b.name for b in chain.backends] == ["gemini", "ollama"]
+    local = chain.backends[-1]
+    assert local.model == "qwen2.5:3b" and local._sem._value == 1 and local._client.timeout.read == 900.0
+    other = build_chain({}, ollama_model="gemma3:4b", ollama_url="http://gpu-box:11434", ollama_available=True).backends[0]
+    assert (other.model, other.small_model, other.provider.base_url) == ("gemma3:4b", "gemma3:4b", "http://gpu-box:11434/v1")
+
+
 def test_a_busy_gemini_model_hands_over_to_its_other_models_first():
     models = []
 
