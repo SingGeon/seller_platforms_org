@@ -52,11 +52,34 @@ def test_a_provider_over_its_quota_hands_over_to_the_next():
     assert chain.used == {"groq": 2}
 
 
-def test_when_every_provider_is_down_the_offline_heuristic_answers():
-    down = lambda req: httpx.Response(503, text="overloaded")  # noqa: E731
-    chain = ChainBackend([backend("gemini", down), backend("groq", down)])
+def test_when_every_provider_is_down_for_long_the_offline_heuristic_answers():
+    down = lambda req: httpx.Response(503, text="overloaded")  # noqa: E731 - skipped for 120 s
+    chain = ChainBackend([backend("gemini", down), backend("groq", down)], max_wait=60)
     answers, _ = run(chain, COMPANY, [QUESTION], [CHUNK])
     assert chain.used == {"heuristic": 1} and answers[0].key == "q:1"
+
+
+def test_when_every_provider_is_only_briefly_paused_the_chain_waits_instead_of_answering_offline():
+    calls = []
+
+    def groq(req):
+        calls.append(req)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"retry-after": "1"}, text="tokens per minute")
+        return ok(json.dumps(ANSWER))
+
+    chain = ChainBackend([backend("groq", groq)])
+    answers, _ = run(chain, COMPANY, [QUESTION], [CHUNK])
+    assert answers[0].answer == "yes" and chain.used == {"groq": 1} and len(calls) == 2
+
+
+def test_a_dropped_connection_pauses_a_provider_only_briefly():
+    def drop(req):
+        raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+
+    chain = ChainBackend([backend("groq", drop)], max_wait=0)
+    run(chain, COMPANY, [QUESTION], [CHUNK])
+    assert 0 < chain._until["groq"] - __import__("time").monotonic() <= 30
 
 
 def test_json_schema_rejected_falls_back_to_a_json_object_in_fences():

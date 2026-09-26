@@ -118,7 +118,8 @@ class OpenAICompatBackend(AnthropicBackend):
             try:
                 resp = await self._client.post(f"{self.provider.base_url}/chat/completions", json=body, headers=self._headers)
             except httpx.HTTPError as exc:
-                raise ProviderUnavailable(f"{self.name}: {type(exc).__name__}: {exc}", cooldown=300) from exc
+                # a dropped connection is usually a blip on our side: skip the provider only briefly
+                raise ProviderUnavailable(f"{self.name}: {type(exc).__name__}: {exc}", cooldown=30) from exc
         if resp.status_code == 429:
             retry = resp.headers.get("retry-after")
             quota = "quota" in resp.text.lower() or "per day" in resp.text.lower() or "exhausted" in resp.text.lower()
@@ -176,8 +177,9 @@ class ChainBackend:
 
     small_model = "chain"
 
-    def __init__(self, backends: list[OpenAICompatBackend], fallback: Any | None = None) -> None:
+    def __init__(self, backends: list[OpenAICompatBackend], fallback: Any | None = None, max_wait: float = 180.0) -> None:
         self.backends = backends
+        self.max_wait = max_wait  # when every provider is only briefly paused, wait for one rather than answer offline
         self.fallback = fallback or HeuristicBackend()
         self.name = "chain(" + ",".join(b.name for b in backends) + ")"
         self.model = backends[0].model if backends else "heuristic"
@@ -185,17 +187,22 @@ class ChainBackend:
         self.used: dict[str, int] = {}  # calls answered per backend, for logs and tests
 
     async def _call(self, method: str, *args: Any) -> Any:
-        for b in self.backends:
-            if self._until.get(b.name, 0) > time.monotonic():
-                continue
-            try:
-                result = await getattr(b, method)(*args)
-            except ProviderUnavailable as exc:
-                self._until[b.name] = time.monotonic() + exc.cooldown
-                log.warning("LLM provider %s unavailable for %.0f s: %s", b.name, exc.cooldown, exc)
-                continue
-            self.used[b.name] = self.used.get(b.name, 0) + 1
-            return result
+        while True:
+            for b in self.backends:
+                if self._until.get(b.name, 0) > time.monotonic():
+                    continue
+                try:
+                    result = await getattr(b, method)(*args)
+                except ProviderUnavailable as exc:
+                    self._until[b.name] = time.monotonic() + exc.cooldown
+                    log.warning("LLM provider %s unavailable for %.0f s: %s", b.name, exc.cooldown, exc)
+                    continue
+                self.used[b.name] = self.used.get(b.name, 0) + 1
+                return result
+            wait = min((self._until.get(b.name, 0) - time.monotonic() for b in self.backends), default=None)
+            if wait is None or wait > self.max_wait:
+                break  # every provider is out for long (daily quota): the offline heuristic answers
+            await asyncio.sleep(max(wait, 0.1))
         self.used["heuristic"] = self.used.get("heuristic", 0) + 1
         return await getattr(self.fallback, method)(*args)
 
