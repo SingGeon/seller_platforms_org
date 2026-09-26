@@ -17,7 +17,7 @@ Requires Node 22.22+.
 | `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background and what the platform does (no company data before login). There is no sign-up: sales-manager accounts are created by an admin, admin accounts directly in the database (`python -m app.admin create`). Any app URL opened while logged out comes back here and returns to that URL after login | — |
 | `/account` | Personal account — profile, password, my leads, my activity; for admins also **Sales-manager accounts** (create, deactivate, reset password; role is always `seller`) | — |
 | `/admin` | Admin only (`role = admin`): team monitoring — KPIs, activity per day, per-seller table (last login, actions, leads, in progress, won, last action) and the filterable activity log | — |
-| `/` (logged in) | Home — KPIs, **Impactul LeadRadar** (research hours saved, qualified leads, conversion, weighted pipeline value; formulas and editable assumptions under "Cum calculăm"), fresh signals, top leads to contact. A short **Ghid rapid** opens on each account's first login and from the "?" in the header | — |
+| `/` (logged in) | Home — KPIs, for admins **Impactul LeadRadar** (research hours saved, qualified leads, conversion, weighted pipeline value; formulas and editable assumptions under "Cum calculăm"), fresh signals, top leads to contact. A short **Ghid rapid** opens on each account's first login and from the "?" in the header | — |
 | `/leads` | Lead list — filters (service, industry sector, country, stage, new), sort, pagination, CSV export | GIG-34 |
 | `/leads/:id` | Company record — score breakdown, "why now", evidence with sources, timeline, notes | GIG-35 |
 | `/pipeline` | Kanban by stage, drag & drop | — |

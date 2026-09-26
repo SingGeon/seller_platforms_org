@@ -29,7 +29,7 @@ const STEPS: Step[] = [
     icon: LayoutDashboard,
     title: 'Acasă: ce e nou azi',
     text:
-      'Vezi lead-urile noi, pe cele fierbinți (scor 75 sau mai mare), semnalele din ultimele 24 de ore și impactul adus echipei. Începe ziua de aici.',
+      'Vezi lead-urile noi, pe cele fierbinți (scor 75 sau mai mare) și semnalele din ultimele 24 de ore. Începe ziua de aici.',
     to: '/',
     cta: 'Deschide Acasă',
   },
@@ -67,7 +67,7 @@ const ADMIN_STEP: Step = {
   icon: ShieldCheck,
   title: 'Pentru administrator',
   text:
-    'Din „Monitorizare echipă” vezi activitatea sales managerilor, din „Conturi sales manageri” creezi conturi, iar din „Configurare” schimbi întrebările-semnal, regulile și profilul clientului ideal.',
+    'Pe Acasă vezi „Impactul LeadRadar”: ore economisite, lead-uri calificate, conversie și valoarea pipeline-ului. Din „Monitorizare echipă” urmărești activitatea sales managerilor, din „Conturi sales manageri” creezi conturi, iar din „Configurare” schimbi întrebările-semnal, regulile și profilul clientului ideal.',
   to: '/admin',
   cta: 'Deschide Monitorizare',
 }

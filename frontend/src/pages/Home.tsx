@@ -65,7 +65,8 @@ export default function Home() {
         />
       </div>
 
-      <ImpactPanel companies={companies} />
+      {/* Business figures for management; sales managers see only their day's work. */}
+      {seller?.role === 'admin' && <ImpactPanel companies={companies} />}
 
       <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
         <Panel>
