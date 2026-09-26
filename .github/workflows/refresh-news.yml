@@ -1,5 +1,5 @@
-# Daily news refresh in the cloud: fetches new articles for every stored company (RO / MD business press,
-# Google News, Bing News), re-runs the signal analysis and re-scores, writing straight to MongoDB Atlas and Neon.
+# Daily news refresh in the cloud: fetches new articles for every stored company (RO / MD / DE / AT press
+# feeds, Bing News), re-runs the signal analysis and re-scores, writing straight to MongoDB Atlas and Neon.
 # Runs on GitHub's servers, so it works while the free Render instance sleeps.
 # Needs the Neon and Atlas connection strings as repository secrets (Settings -> Secrets and variables -> Actions):
 # either DATABASE_URL (postgresql+psycopg://...) and MONGO_URI (mongodb+srv://...), or one secret ALFA holding the
@@ -19,7 +19,7 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300  # the whole 984-company refresh; GitHub cancels the job after this
     env:
       DATABASE_SCHEMA: LeadRadar
       MONGO_DB: leadradar
