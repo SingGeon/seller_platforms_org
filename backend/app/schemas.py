@@ -123,6 +123,7 @@ class CompanyOut(ORM, CompanyIn):
     aliases: list[str] = Field(default_factory=list)
     registry_profiles: dict = Field(default_factory=dict)
     tech_stack: list[str] = Field(default_factory=list)
+    news_profile: dict = Field(default_factory=dict)  # topical stories per topic (app/newscuration.py)
     enriched_at: datetime | None = None
     created_at: datetime
 

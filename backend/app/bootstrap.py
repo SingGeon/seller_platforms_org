@@ -269,6 +269,10 @@ async def refresh_news(
     finally:
         if own_client:
             await client.aclose()
+    from .newscuration import tag_documents, update_status
+
+    tag_documents(ids)  # topics of the new articles, then which companies still have enough topical news
+    stats["status"] = update_status(ids)
     if analyze and ids:
         run_id = mongo.create_run(kind="enrichment", params={"stage": "news-refresh-analysis"}).id
         say(f"Signal analysis and scoring for {len(ids)} companies")
@@ -303,7 +307,7 @@ def main() -> None:
     parser.add_argument("--news-concurrency", type=int, default=2, help="parallel news requests (Google News blocks above ~2)")
     parser.add_argument("--refresh-news", action="store_true", help="skip the registries: fetch news for stored companies, then re-score")
     parser.add_argument("--news-providers", default=",".join(NEWS_PROVIDERS),
-                        help="per-company news providers: google_news,bing_news (empty = business-press feeds only)")
+                        help="per-company news providers: google_news,bing_news,google_topics,gdelt_topics (empty = press feeds only)")
     parser.add_argument("--no-press", action="store_true", help="skip the RO / MD business-press feeds")
     parser.add_argument("--fresh-hours", type=float, default=NEWS_FRESH_HOURS,
                         help="with --refresh-news: skip companies that got news in the last N hours (a daily job needs less than 24)")

@@ -1,4 +1,4 @@
-"""Business-press RSS feeds of the target markets (RO, MD).
+"""Business, tech and security press RSS feeds of the target markets (RO, MD, DE, AT).
 
 One request per outlet returns its latest articles for every company at once, so a bulk run covers
 1,000 companies with a few dozen requests instead of one search per company, and is not throttled
@@ -59,6 +59,34 @@ LOCAL_FEEDS: tuple[Feed, ...] = (
     Feed("Ziarul de Gardă", "https://www.zdg.md/feed/", ("MD",), paged=True),
     Feed("Bani.md", "https://bani.md/rss", ("MD",)),
     Feed("Diez", "https://diez.md/feed/", ("MD",), paged=True),
+    # Added 2026-09-26 (each answered 200 with current articles): more RO / MD business and tech press,
+    # DE / AT business and IT press, and security news for incidents at any company.
+    Feed("Bursa", "https://www.bursa.ro/_rss/?t=pcaps", ("RO",)),
+    Feed("Economedia", "https://economedia.ro/feed", ("RO",), paged=True),
+    Feed("Forbes România", "https://www.forbes.ro/feed", ("RO",), paged=True),
+    Feed("Start-up.ro", "https://start-up.ro/feed/", ("RO",), paged=True),
+    Feed("Agerpres Economic", "https://www.agerpres.ro/rss/economic", ("RO",)),
+    Feed("Digi24 Economie", "https://www.digi24.ro/rss/stiri/economie", ("RO",)),
+    Feed("Mediafax", "https://www.mediafax.ro/rss", ("RO",)),
+    Feed("News.ro", "https://www.news.ro/rss", ("RO",)),
+    Feed("Spotmedia", "https://spotmedia.ro/feed", ("RO",), paged=True),
+    Feed("Economistul", "https://www.economistul.ro/feed/", ("RO",), paged=True),
+    Feed("Club IT&C", "https://www.clubitc.ro/feed/", ("RO", "MD"), paged=True),
+    Feed("Ziare.com Economie", "https://ziare.com/rss/economie.xml", ("RO",)),
+    Feed("Libertatea", "https://www.libertatea.ro/feed", ("RO",)),
+    Feed("Realitatea.md", "https://realitatea.md/feed/", ("MD",), paged=True),
+    Feed("Handelsblatt Unternehmen", "https://www.handelsblatt.com/contentexport/feed/unternehmen", ("DE", "AT")),
+    Feed("WirtschaftsWoche", "https://www.wiwo.de/contentexport/feed/rss/unternehmen", ("DE", "AT")),
+    Feed("Spiegel Wirtschaft", "https://www.spiegel.de/wirtschaft/index.rss", ("DE", "AT")),
+    Feed("Tagesschau Wirtschaft", "https://www.tagesschau.de/wirtschaft/index~rss2.xml", ("DE",)),
+    Feed("heise online", "https://www.heise.de/rss/heise-atom.xml", ("DE", "AT")),
+    Feed("Golem", "https://rss.golem.de/rss.php?feed=RSS2.0", ("DE", "AT")),
+    Feed("t3n", "https://t3n.de/rss.xml", ("DE", "AT")),
+    Feed("Der Standard Wirtschaft", "https://www.derstandard.at/rss/wirtschaft", ("AT",)),
+    Feed("ORF", "https://rss.orf.at/news.xml", ("AT",)),
+    Feed("Kurier Wirtschaft", "https://kurier.at/wirtschaft/xml/rss", ("AT",)),
+    Feed("Security-Insider", "https://www.security-insider.de/rss/news.xml", ("DE", "AT")),
+    Feed("BleepingComputer", "https://www.bleepingcomputer.com/feed/", ("RO", "MD", "DE", "AT")),
 )
 
 

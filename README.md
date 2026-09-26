@@ -134,6 +134,31 @@ python -m app.bootstrap --refresh-news --news-providers bing_news   # while Goog
 # or via the API: POST /bootstrap/runs {"countries": ["RO","MD","DE"], "target": 1000, "enrich_top_n": 30}
 ```
 
+**News curation: only companies whose news explains their situation** (`python -m app.newscuration`, in `backend/`).
+The manual research of Annex 1 (read the news, keep the signals that matter, judge them) is automatic:
+
+- Every article is tagged with the topics it covers (`pipeline/sales_pipeline/newstopics.py`, Romanian, German and
+  English wording): cost reduction / efficiency programs, digital transformation (cloud, ERP, data, IoT), AI / RPA /
+  Agentic AI / process mining, relevant hiring, CIO / COO / digital appointments, shared services and process
+  consolidation, technologies and partners in use, security incidents, IT outages, compliance and fines, operational
+  problems, financial pressure, growth / investment, and layoffs / hiring freezes / IT budget cuts (a negative signal).
+  An article only counts when it really names the company (a one-word name must be written exactly: "Electrica",
+  not "energie electrică").
+- A company needs at least 5 distinct topical stories from the last 3 years (the same story from several outlets
+  counts once). Below 10, it gets a targeted search: Google News once per theme in the company's language (4 queries),
+  Bing News, and 40 business / tech / security press feeds (RO, MD, DE, AT). The profile is stored on the company as
+  `news_profile` (stories, strong / negative stories, count per topic, last story date).
+- Companies that stay below 5 get `status: insufficient_news` and are hidden from `/leads` and `/dashboard/companies`
+  (their data stays; a later run can bring them back). Companies entered by hand are never hidden.
+- `--target N` replaces hidden companies with the next best-known real companies from Wikidata: each candidate is
+  searched first and only stored when it already has 5 topical stories; rejected candidates are remembered for 30 days.
+- The daily refresh re-tags the new articles and updates the statuses too. GDELT (`gdelt_topics`) is opt-in: it allows
+  1 request / 5 s and returned nothing for RO / MD companies.
+
+Measured on 26 Sep 2026: before curation only 32 of 984 companies had 5 topical stories; a targeted search took
+Electrica from 3 to 34 stories (13 about security incidents), Banca Transilvania from 0 to 44 (16 about AI /
+automation) and Metrorex from 5 to 30, in about 20 s per company (Google News throttle, 2 s per request).
+
 **Daily refresh in the cloud:** the GitHub Actions workflow `.github/workflows/refresh-news.yml` runs
 `python -m app.bootstrap --refresh-news --fresh-hours 20` every day at 03:00 UTC against the cloud databases (and on
 demand from Actions → Refresh news → Run workflow). It needs the repository secrets `DATABASE_URL` (Neon,

@@ -3,6 +3,7 @@ editions), GDELT DOC API (free, 1 request / 5 s) and NewsAPI (key). Bulk runs al
 feeds in sources/localnews.py, which cover every company with one request per outlet."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -14,7 +15,8 @@ import httpx
 from ..documents import Document, clean_text, dedupe
 from ..schemas import CompanyInfo
 from ..sources.base import polite_request
-from ..sources.companies import mentions, search_name
+from ..newstopics import GDELT_TOPIC_TERMS, topic_queries
+from ..sources.companies import mentions_strictly, search_name
 
 # (hl, gl, ceid) per market; kept here to avoid importing the discovery feeds module.
 GOOGLE_EDITIONS = {
@@ -66,14 +68,15 @@ def _iso_date(value: str | None) -> datetime | None:
         return None
 
 
-async def fetch_gdelt(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str], max_records: int = 50) -> list[Document]:
+async def fetch_gdelt(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str], max_records: int = 50,
+                      timespan: str = "6months") -> list[Document]:
     kw = " OR ".join(f'"{k}"' if " " in k else k for k in keywords)
     params = {
         "query": f'"{search_name(company.name)}" ({kw})',
         "mode": "artlist",
         "format": "json",
         "maxrecords": str(max_records),
-        "timespan": "6months",
+        "timespan": timespan,
         "sort": "datedesc",
     }
     # GDELT enforces ~1 request / 5 s and answers 429 otherwise: shared throttle + backoff.
@@ -131,6 +134,19 @@ async def fetch_newsapi(client: httpx.AsyncClient, company: CompanyInfo, keyword
 
 async def fetch_google_news(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str]) -> list[Document]:
     query = f'"{search_name(company.name)}" ' + " OR ".join(keywords[:6])
+    return await _google_news_query(client, company, query, "google_news_rss")
+
+
+async def fetch_google_news_topics(client: httpx.AsyncClient, company: CompanyInfo) -> list[Document]:
+    """Google News searches for the company together with each theme of newstopics.TOPIC_QUERIES (cost cutting,
+    digitalisation, AI / RPA, appointments, hiring, security incidents, ...), in the company's language."""
+    docs: list[Document] = []
+    for group in topic_queries(company.country):
+        docs += await _google_news_query(client, company, f'"{search_name(company.name)}" {group}', "google_news_topics")
+    return docs
+
+
+async def _google_news_query(client: httpx.AsyncClient, company: CompanyInfo, query: str, provider: str) -> list[Document]:
     # Local-language edition for the company's market (gl/hl), e.g. RO/MD news in Romanian.
     hl, gl, ceid = GOOGLE_EDITIONS.get(company.country or "US", GOOGLE_EDITIONS["US"])
     resp = await polite_request(client, "GET", f"https://news.google.com/rss/search?q={quote_plus(query)}&hl={hl}&gl={gl}&ceid={ceid}", retries=2)
@@ -153,7 +169,7 @@ async def fetch_google_news(client: httpx.AsyncClient, company: CompanyInfo, key
                 text=clean_text(f"{entry.get('title', '')}. {summary}"),
                 published_at=published,
                 source=(entry.get("source") or {}).get("title", "google-news"),
-                meta={"provider": "google_news_rss"},
+                meta={"provider": provider},
             )
         )
     return docs
@@ -216,6 +232,10 @@ async def collect_news(
         jobs = []
         if "gdelt" in providers:
             jobs.append(("gdelt", fetch_gdelt(client, company, keywords)))
+        if "gdelt_topics" in providers:
+            jobs.append(("gdelt_topics", fetch_gdelt(client, company, list(GDELT_TOPIC_TERMS), timespan="3months")))
+        if "google_topics" in providers:
+            jobs.append(("google_topics", fetch_google_news_topics(client, company)))
         if "google_news" in providers:
             jobs.append(("google_news", fetch_google_news(client, company, keywords)))
         if "bing_news" in providers:
@@ -223,13 +243,18 @@ async def collect_news(
         if newsapi_key and "newsapi" in providers:
             jobs.append(("newsapi", fetch_newsapi(client, company, keywords, newsapi_key)))
         docs: list[Document] = []
-        for name, job in jobs:
-            try:
-                docs.extend(await job)
-            except (httpx.HTTPError, ValueError, KeyError) as exc:
-                log.warning("news provider %s failed for %s: %s", name, company.name, exc)
-        # Keep only articles that actually mention the company (legal form and accents optional).
-        docs = [d for d in docs if mentions(company.name, d.title + " " + d.text)]
+        # Providers live on different hosts with their own throttles, so they run in parallel.
+        results = await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
+        for (name, _), res in zip(jobs, results):
+            if isinstance(res, (httpx.HTTPError, ValueError, KeyError)):
+                log.warning("news provider %s failed for %s: %s", name, company.name, res)
+            elif isinstance(res, BaseException):
+                raise res
+            else:
+                docs.extend(res)
+        # Keep only articles that actually mention the company (legal form and accents optional; a one-word
+        # name must be written exactly, so "energie electrică" is not news about Electrica).
+        docs = [d for d in docs if mentions_strictly(company.name, d.title + " " + d.text)]
         docs.sort(key=lambda d: d.published_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         return dedupe(docs)
     finally:

@@ -63,7 +63,8 @@ def _joined(db: Session, lead_query: dict | None = None, company_query: dict | N
     if company_query:
         lq["company_id"] = {"$in": mongo.ids(mongo.COMPANIES, company_query)}
     leads = mongo.find(mongo.LEAD_SCORES, lq, sort=sort)
-    companies = {c.id: c for c in mongo.find(mongo.COMPANIES, {"_id": {"$in": list({l.company_id for l in leads})}})}
+    # Companies without enough topical news (app/newscuration.py) stay out of leads and the dashboard.
+    companies = {c.id: c for c in mongo.find(mongo.COMPANIES, {"_id": {"$in": list({l.company_id for l in leads})}, "status": {"$ne": "insufficient_news"}})}
     return [(l, companies[l.company_id], services[l.service_id]) for l in leads if l.company_id in companies and l.service_id in services]
 
 

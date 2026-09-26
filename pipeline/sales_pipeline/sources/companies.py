@@ -69,6 +69,17 @@ def mentions(name: str, text: str) -> bool:
     return bool(needle) and f" {needle} " in _plain(text)
 
 
+def mentions_strictly(name: str, text: str) -> bool:
+    """mentions(), and a one-word name must also appear written exactly as the company writes it
+    ("Electrica", not "energie electrică"), since search engines ignore case and accents."""
+    if not mentions(name, text):
+        return False
+    display = search_name(name).strip()
+    if " " in _plain(display).strip():
+        return True
+    return re.search(rf"(?<!\w){re.escape(display)}(?!\w)", text or "") is not None
+
+
 def normalize_domain(value: str | None) -> str | None:
     if not value:
         return None
