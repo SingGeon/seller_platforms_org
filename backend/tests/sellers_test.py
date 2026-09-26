@@ -79,7 +79,8 @@ def test_dashboard_joins_postgres_assignment_with_mongo_scores_and_logs_activity
 
     log = api.get(f"/activity?company_id={cid}", headers=h).json()
     actions = [a["action"] for a in log]
-    assert "PUT /companies/{company_id}/assignment" in actions and "POST /companies/{company_id}/notes" in actions
+    assert {"lead_stage", "lead_assign", "lead_note"} <= set(actions)  # detailed entries replace the generic audit ones
+    assert "PUT /companies/{company_id}/assignment" not in actions
     assert all(a["seller"] == "Admin One" and a["seller_id"] for a in log)
 
 
@@ -208,3 +209,40 @@ def test_contact_message_follows_the_chosen_language(api, admin, language, greet
     service = api.get("/services", headers=h).json()[0]
     draft = api.post(f"/companies/{company['id']}/outreach?service={service['id']}&channel=email&language={language}", headers=h).json()
     assert draft["body"].startswith(greeting) and draft["language"] == language
+
+
+def test_a_lead_leaves_nou_only_with_an_owner(api, admin):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"})
+    ah = login(api, "ana@leadradar.md", "ana-pass-12")
+    free, other = [c["id"] for c in api.get("/companies", headers=h).json()[:2]]
+
+    assert api.put(f"/companies/{free}/assignment", headers=h, json={"stage": "calificat"}).status_code == 400  # admin, no owner
+    assert api.get(f"/companies/{free}/assignment", headers=h).json()["stage"] == "nou"
+    # a sales manager who moves a free lead forward becomes its owner
+    moved = api.put(f"/companies/{free}/assignment", headers=ah, json={"stage": "calificat"}).json()
+    assert (moved["stage"], moved["owner"]) == ("calificat", "Ana")
+    # giving a lead back sends it to "nou"
+    back = api.put(f"/companies/{free}/assignment", headers=ah, json={"unassign": True}).json()
+    assert (back["stage"], back["owner"]) == ("nou", None)
+    # stage "nou" without an owner stays allowed
+    assert api.put(f"/companies/{other}/assignment", headers=h, json={"stage": "nou"}).status_code == 200
+
+
+def test_pipeline_history_lists_every_change_with_who_and_from_to(api, admin):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    ana = api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"}).json()
+    company = api.get("/companies", headers=h).json()[0]
+    api.put(f"/companies/{company['id']}/assignment", headers=h, json={"stage": "contactat", "seller_id": ana["id"]})
+    ah = login(api, "ana@leadradar.md", "ana-pass-12")
+    api.put(f"/companies/{company['id']}/assignment", headers=ah, json={"stage": "negociere"})
+    api.post(f"/companies/{company['id']}/notes", headers=ah, json={"text": "Ofertă trimisă"})
+
+    history = api.get("/pipeline/history", headers=ah).json()
+    assert [(e["action"], e["seller"]) for e in history] == [
+        ("lead_note", "Ana"), ("lead_stage", "Ana"), ("lead_assign", "Admin One"), ("lead_stage", "Admin One")]
+    assert history[1]["details"] == {"stage_from": "contactat", "stage_to": "negociere"}
+    assert history[2]["details"]["owner_to"] == "Ana" and history[3]["details"] == {"stage_from": "nou", "stage_to": "contactat"}
+    assert history[0]["details"]["excerpt"] == "Ofertă trimisă" and all(e["company"] == company["name"] for e in history)
+    assert api.get(f"/pipeline/history?company_id={company['id'] + 999}", headers=ah).json() == []
+    assert len(api.get("/pipeline/history?limit=2", headers=ah).json()) == 2

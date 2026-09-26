@@ -150,7 +150,8 @@ def get_assignment(company_id: int, db: Session = Depends(get_db), _: Seller = D
 
 
 @router.put("/companies/{company_id}/assignment", response_model=AssignmentOut, tags=["crm"],
-            summary="Move a lead to a stage and/or set its owner: an admin assigns anyone, a seller only takes a free lead or gives back their own")
+            summary="Move a lead to a stage and/or set its owner: an admin assigns anyone, a seller only takes a free lead or gives back their own; "
+                    "a lead leaves 'nou' only with an owner")
 def update_assignment(company_id: int, body: AssignmentIn, db: Session = Depends(get_db), caller: Seller = Depends(current_seller)):
     company_or_404(company_id)
     a = _get_or_new(db, company_id)
@@ -162,16 +163,28 @@ def update_assignment(company_id: int, body: AssignmentIn, db: Session = Depends
                 raise HTTPException(403, "Only an admin can assign a lead to someone else")
             if a.seller_id not in (None, caller.id):
                 raise HTTPException(403, "This lead already has an owner")
-    if body.stage is not None:
-        a.stage = body.stage
+    stage_from, owner_from = a.stage or "nou", a.seller
+    stage = body.stage if body.stage is not None else stage_from
+    owner = owner_from
     if body.unassign:
-        a.seller_id = None
+        owner = None
+        stage = "nou"  # a lead without an owner goes back to the free pool
     elif body.seller_id is not None:
-        get_or_404(db, Seller, body.seller_id)
-        a.seller_id = body.seller_id
+        owner = get_or_404(db, Seller, body.seller_id)
+    elif owner is None and stage != "nou" and caller.role != "admin":
+        owner = caller  # a sales manager who moves a free lead forward takes it
+    if stage != "nou" and owner is None:
+        raise HTTPException(400, "A lead can leave the 'nou' stage only with an owner (sales manager)")
+    a.stage, a.seller_id = stage, owner.id if owner else None
     a.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(a)
+    if stage != stage_from:
+        mongo.log_activity("lead_stage", caller, company_id=company_id, stage_from=stage_from, stage_to=stage)
+    if (owner.id if owner else None) != (owner_from.id if owner_from else None):
+        mongo.log_activity("lead_assign", caller, company_id=company_id,
+                           owner_from=owner_from.full_name if owner_from else None, owner_to=owner.full_name if owner else None,
+                           owner_from_id=owner_from.id if owner_from else None, owner_to_id=owner.id if owner else None)
     return _assignment_out(a)
 
 
@@ -179,12 +192,32 @@ def update_assignment(company_id: int, body: AssignmentIn, db: Session = Depends
 def add_note(company_id: int, body: NoteIn, db: Session = Depends(get_db), seller: Seller = Depends(current_seller)):
     company_or_404(company_id)
     a = _get_or_new(db, company_id)
-    note = {"t": datetime.now(timezone.utc).isoformat(), "seller_id": seller.id, "author": seller.full_name, "text": body.text.strip()}
+    text = body.text.strip()
+    note = {"t": datetime.now(timezone.utc).isoformat(), "seller_id": seller.id, "author": seller.full_name, "text": text}
     a.notes = [*(a.notes or []), note]
     a.updated_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(a)
+    mongo.log_activity("lead_note", seller, company_id=company_id, excerpt=text[:140] + ("…" if len(text) > 140 else ""))
     return _assignment_out(a)
+
+
+PIPELINE_ACTIONS = ("lead_stage", "lead_assign", "lead_note", "PUT /companies/{company_id}/assignment", "POST /companies/{company_id}/notes")
+
+
+@router.get("/pipeline/history", tags=["crm"],
+            summary="Every pipeline change (stage, owner, note), newest first, with who did it and the company name")
+def pipeline_history(company_id: int | None = None, seller_id: int | None = None, limit: int = 200,
+                     _: Seller = Depends(current_seller)):
+    q: dict = {"action": {"$in": list(PIPELINE_ACTIONS)}}
+    if company_id is not None:
+        q["company_id"] = company_id
+    if seller_id is not None:
+        q["seller_id"] = seller_id
+    rows = list(mongo.db()[mongo.ACTIVITY].find(q, {"_id": 0}).sort("t", DESCENDING).limit(min(max(limit, 1), 2000)))
+    names = {c["_id"]: c["name"] for c in mongo.db()[mongo.COMPANIES].find(
+        {"_id": {"$in": list({r["company_id"] for r in rows if r.get("company_id") is not None})}}, {"name": 1})}
+    return [{**r, "company": names.get(r.get("company_id"))} for r in rows]
 
 
 # ------------------------------------------------------------------ activity log (MongoDB) and cross-database integrity

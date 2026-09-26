@@ -439,7 +439,8 @@ erDiagram
 | CRM | `GET /export/leads.csv`, `GET /export/leads.json`, `POST /crm/hubspot` (body: lead ids) |
 | Auth | `POST /auth/login` (`{email, password}` → bearer token, 14 days), `POST /auth/logout`, `GET /auth/me` |
 | Sellers | `POST /sellers` (admin only, creates `seller` accounts), `GET /sellers`, `PUT /sellers/{id}` (yourself: name, password; an admin on a seller: also `active`), `DELETE /sellers/{id}` (admin, seller accounts) |
-| Lead stage / owner | `GET /assignments?seller_id=`, `GET/PUT /companies/{id}/assignment` (`{stage?, seller_id?, unassign?}`), `POST /companies/{id}/notes` |
+| Lead stage / owner | `GET /assignments?seller_id=`, `GET/PUT /companies/{id}/assignment` (`{stage?, seller_id?, unassign?}`), `POST /companies/{id}/notes`. A lead leaves `nou` only with an owner: an admin gets `400` without one, a sales manager who moves a free lead becomes its owner, and `unassign` sends the lead back to `nou` |
+| Pipeline history | `GET /pipeline/history?company_id=&seller_id=&limit=` (default 200): every stage change (`lead_stage`: `stage_from`, `stage_to`), owner change (`lead_assign`: `owner_from`, `owner_to`) and note (`lead_note`: `excerpt`), newest first, with `t`, `seller` (who) and `company` (name) |
 | Activity / integrity | `GET /activity?company_id=&seller_id=` (MongoDB log), `GET /admin/integrity`, `POST /admin/integrity/repair` (admin) |
 
 Every endpoint except `/health`, `/auth/status` and `/auth/login` needs `Authorization: Bearer <token>`

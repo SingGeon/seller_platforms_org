@@ -17,7 +17,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 
 AUDIT_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
-AUDIT_SKIP = {"/auth/login", "/auth/logout"}  # logged explicitly by the auth routes
+# logged explicitly, with details, by their routes (auth, lead stage / owner, notes)
+AUDIT_SKIP = {"/auth/login", "/auth/logout", "/companies/{company_id}/assignment", "/companies/{company_id}/notes"}
 
 
 def create_app(session_factory: sessionmaker | None = None, llm_override=None, http_override=None, auth_required: bool | None = None) -> FastAPI:
