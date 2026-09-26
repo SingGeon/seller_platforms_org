@@ -23,7 +23,13 @@ jobs:
     env:
       DATABASE_SCHEMA: LeadRadar
       MONGO_DB: leadradar
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional; without it the offline analysis is used
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional, paid; without it the free AI chain below is used
+      # free AI providers, tried in this order; a key can also be a KEY=value line in ALFA
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      OLLAMA_MODEL: qwen2.5:3b   # local base model on the runner, answers when every cloud quota is used up
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,6 +56,15 @@ jobs:
           test -n "$mongo" || { echo "::error::No Atlas URL: add secret MONGO_URI, or a MONGO_URI= / MONGO_CLOUD_URI= line in ALFA"; exit 1; }
           echo "::add-mask::$pg"; echo "::add-mask::$mongo"
           { echo "DATABASE_URL=$pg"; echo "MONGO_URI=$mongo"; } >> "$GITHUB_ENV"
+          for k in GEMINI_API_KEY GROQ_API_KEY MISTRAL_API_KEY OPENROUTER_API_KEY; do
+            if [ -z "${!k}" ] && v="$(get $k)" && [ -n "$v" ]; then echo "::add-mask::$v"; echo "$k=$v" >> "$GITHUB_ENV"; fi
+          done
+      - name: Start the local base model (Ollama)
+        # the analysis falls back to it when Gemini, Groq, Mistral and OpenRouter are all out of quota
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for i in $(seq 30); do curl -sf http://localhost:11434/api/tags >/dev/null && break; sleep 1; done
+          ollama pull "$OLLAMA_MODEL"
       - name: Add new services and questions from the seed (existing ones stay as they are)
         working-directory: backend
         # the next step analyses and re-scores every company, new services included
