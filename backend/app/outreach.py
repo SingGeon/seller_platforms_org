@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from sales_pipeline.documents import clean_text
-from sales_pipeline.llm import LLMBackend
+from sales_pipeline.llm import LLMBackend, cache_key
+from sales_pipeline.schemas import Usage
 
 from .models import Service
 from .mongo import MDoc
@@ -38,8 +39,12 @@ def grounded_in_signals(body: str, top_signals: list[dict]) -> bool:
 
 
 async def generate_outreach(
-    llm: LLMBackend, company: MDoc, service: Service, lead: MDoc | None, *, channel: str, tone: str, language: str
+    llm: LLMBackend, company: MDoc, service: Service, lead: MDoc | None, *, channel: str, tone: str, language: str,
+    cache=None, fresh: bool = False,
 ) -> dict:
+    """An AI draft is saved under its inputs: the same lead, signals and options give it back without spending tokens
+    (`fresh` asks the AI for a new one). When every AI provider is out of quota, the saved draft is returned instead
+    of the offline template; the offline one is never saved."""
     top = (lead.explanation or {}).get("top_signals", []) if lead else []
     payload = {
         "company": company.name,
@@ -53,7 +58,16 @@ async def generate_outreach(
         "why_now": (lead.explanation or {}).get("summary", "") if lead else "",
         "top_signals": [{"question": s["label"], "quote": s["quote"], "date": s["date"], "url": s["url"]} for s in top],
     }
-    draft, usage = await llm.write_outreach(payload)
+    key = cache_key("outreach", payload)
+    saved = cache.get(key) if cache else None
+    if saved is not None and not fresh:
+        draft, usage = saved, Usage(cache_hits=1)
+    else:
+        draft, usage = await llm.write_outreach(payload)
+        if usage.llm_calls and draft and cache:
+            cache.set(key, draft)
+        elif not usage.llm_calls and saved is not None:
+            draft = saved
     draft = _enforce_limits(channel, draft or {"subject": "", "body": "", "signals_used": []})
     return {
         "channel": channel,

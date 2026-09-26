@@ -27,7 +27,7 @@ from sales_pipeline.sources.registry import gleif_profile, wikidata_profile
 from sales_pipeline.sources.sec import sec_annual_report_documents
 
 from .config import get_settings
-from .explain import generate_summary
+from .explain import generate_summary, needs_summary
 from . import mongo
 from .llm_factory import MongoCache, get_llm
 from .models import DisqualificationRule, Service, SignalQuestion
@@ -305,9 +305,10 @@ async def execute_run(
         _log(run_id, "Scoring leads", stage="scoring")
         with sf() as db:
             leads = recompute_scores(db, company_ids, service_ids)
-            to_explain = [l for l in leads if l.tier in ("Hot", "Warm") and not (l.explanation or {}).get("summary")]
+            # every lead with signals, best first, so the AI quota goes to the leads that matter most
+            to_explain = sorted((l for l in leads if needs_summary(l)), key=lambda l: -(l.final_score or 0))
         if explain and to_explain:
-            _log(run_id, f"Writing explanations for {len(to_explain)} Hot/Warm leads", stage="explain")
+            _log(run_id, f"Writing explanations for {len(to_explain)} leads", stage="explain")
 
             async def explain_one(lead: MDoc):
                 with sf() as db:

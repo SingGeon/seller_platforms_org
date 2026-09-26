@@ -17,7 +17,7 @@ from .. import mongo
 from ..config import get_settings
 from ..crm import lead_row, push_to_hubspot, to_csv
 from ..explain import generate_summary
-from ..llm_factory import get_llm
+from ..llm_factory import MongoCache, get_llm
 from ..models import LeadAssignment, Service, SignalQuestion
 from ..mongo import MDoc
 from ..orchestrator import execute_run
@@ -340,12 +340,14 @@ async def outreach(
     channel: str = Query("email", pattern="^(email|linkedin|followup)$"),
     tone: str = Query("consultative", pattern="^(formal|consultative)$"),
     language: str = Query("EN", pattern="^(EN|RO|DE)$"),
+    fresh: bool = Query(False, description="ask the AI for a new draft instead of the saved one"),
     db: Session = Depends(get_db),
 ):
     company = company_or_404(company_id)
     svc = resolve_service(db, service)
     lead = mongo.find_one(mongo.LEAD_SCORES, {"company_id": company_id, "service_id": svc.id})
-    return await generate_outreach(get_llm(), company, svc, lead, channel=channel, tone=tone, language=language)
+    return await generate_outreach(get_llm(), company, svc, lead, channel=channel, tone=tone, language=language,
+                                   cache=MongoCache(), fresh=fresh)
 
 
 # ------------------------------------------------------------------ CRM / export

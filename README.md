@@ -57,7 +57,11 @@ the same prompts and JSON schemas as Claude. A model that answers 503 "high dema
 models; a provider over its quota or down is skipped for a while (1 h for a daily quota) and the next one answers; with
 none left the offline heuristic does, and its answers are never cached under a model's name, so the next run asks the AI
 again. `LLM_PROVIDER=heuristic` forces the offline mode, `LLM_MODEL_OVERRIDES="groq=model|small_model"` changes models.
-`/health` reports the active chain. Free tiers may use the prompts to improve their models: only public news is sent.
+`/health` reports the active chain.
+AI results are kept for when the quotas run out: signal answers and events are cached under their passages, so a company
+whose news did not change is never re-asked; a "why now" summary is written for every lead with signals (best first) and
+an offline one is redone by the AI on a later run, never the other way round; outreach drafts are saved per lead, signals
+and options (`?fresh=true` asks for a new one) and the saved draft is returned while the AI is unavailable. Free tiers may use the prompts to improve their models: only public news is sent.
 
 **Offline mode:** without any AI key the pipeline uses a deterministic keyword backend. It never produces
 a false "yes", but it misses a lot. With `OFFLINE_COLLECT=true` nothing is fetched from the internet and only stored
