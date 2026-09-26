@@ -285,7 +285,7 @@ function AccountsTab() {
         <PanelTitle action={<Link to="/admin" className="text-[13px] font-bold underline underline-offset-4">Monitorizare echipă</Link>}>Sales manageri ({sellers.length})</PanelTitle>
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
-            <thead className="border-b-2 border-ink text-left text-[13px]">
+            <thead className="whitespace-nowrap border-b-2 border-ink text-left text-[13px]">
               <tr>
                 <th className="px-5 py-3">Nume</th>
                 <th className="px-5 py-3">Creat</th>

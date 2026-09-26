@@ -279,7 +279,7 @@ export default function Leads() {
 
       <div ref={tableTop} className="scroll-mt-4 overflow-x-auto border border-line bg-white">
         <table className="w-full min-w-[1000px] border-collapse text-[14px]">
-          <thead className="sticky top-0 border-b-2 border-ink bg-white text-[13px]">
+          <thead className="sticky top-0 whitespace-nowrap border-b-2 border-ink bg-white text-[13px]">
             <tr>
               {sortHead('name', 'Companie', 'w-[26%]')}
               {sortHead('score', 'Scor', 'w-[150px]')}

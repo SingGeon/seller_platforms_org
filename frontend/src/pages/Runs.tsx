@@ -80,7 +80,7 @@ export default function Runs() {
 
       <div className="overflow-x-auto border border-line bg-white">
         <table className="w-full min-w-[800px] border-collapse">
-          <thead className="border-b-2 border-ink text-left text-[13px]">
+          <thead className="whitespace-nowrap border-b-2 border-ink text-left text-[13px]">
             <tr>
               <th className="px-4 py-3">Sursă</th>
               <th className="px-4 py-3">Categorie</th>

@@ -202,16 +202,16 @@ export default function Admin() {
       <Panel className="mb-6">
         <PanelTitle>Sales manageri</PanelTitle>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse">
-            <thead className="border-b-2 border-ink text-left text-[13px]">
+          <table className="w-full border-collapse">
+            <thead className="whitespace-nowrap border-b-2 border-ink text-left text-[13px]">
               <tr>
-                <th className="px-5 py-3">Sales manager</th>
-                <th className="px-5 py-3">Ultima autentificare</th>
-                <th className="px-5 py-3">Acțiuni în perioadă</th>
-                <th className="px-5 py-3 text-right">Lead-uri</th>
-                <th className="px-5 py-3 text-right">În lucru</th>
-                <th className="px-5 py-3 text-right">Câștigate</th>
-                <th className="px-5 py-3">Ultima acțiune</th>
+                <th className="px-4 py-3">Sales manager</th>
+                <th className="px-4 py-3">Ultima autentificare</th>
+                <th className="px-4 py-3">Acțiuni în perioadă</th>
+                <th className="px-4 py-3 text-right">Lead-uri</th>
+                <th className="px-4 py-3 text-right">În lucru</th>
+                <th className="px-4 py-3 text-right">Câștigate</th>
+                <th className="px-4 py-3">Ultima acțiune</th>
               </tr>
             </thead>
             <tbody>
@@ -222,10 +222,10 @@ export default function Admin() {
                   className={`cursor-pointer border-b border-line align-middle last:border-0 hover:bg-orange-wash ${s.active ? '' : 'text-muted'}`}
                   title="Arată activitatea în jurnal"
                 >
-                  <td className="px-5 py-3.5">
+                  <td className="min-w-[200px] px-4 py-3.5">
                     <div className="flex items-center gap-3">
                       <Avatar name={s.full_name} />
-                      <div>
+                      <div className="min-w-0">
                         <p className="font-bold text-ink">
                           {s.full_name}
                           {!s.active && <span className="ml-2 bg-band px-1.5 py-0.5 text-[11px] font-bold text-muted">Dezactivat</span>}
@@ -234,27 +234,27 @@ export default function Admin() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-[14px]">{s.last_login_at ? timeAgo(s.last_login_at) : 'niciodată'}</td>
-                  <td className="px-5 py-3.5">
+                  <td className="whitespace-nowrap px-4 py-3.5 text-[14px]">{s.last_login_at ? timeAgo(s.last_login_at) : 'niciodată'}</td>
+                  <td className="px-4 py-3.5">
                     <div className="flex items-center gap-3">
                       <span className="num w-8 text-right font-bold text-ink">{acts}</span>
-                      <span className="h-2 w-28 bg-band" aria-hidden>
+                      <span className="h-2 w-20 shrink-0 bg-band" aria-hidden>
                         <span className="block h-full bg-orange" style={{ width: `${(acts / maxActs) * 100}%` }} />
                       </span>
                       {s.active && acts === 0 && (
-                        <span className="inline-flex items-center gap-1 text-[12px] font-bold text-danger">
+                        <span className="inline-flex items-center gap-1 whitespace-nowrap text-[12px] font-bold text-danger">
                           <TriangleAlert size={13} aria-hidden /> Fără activitate
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="num px-5 py-3.5 text-right font-bold text-ink">{leads}</td>
-                  <td className="num px-5 py-3.5 text-right">{working}</td>
-                  <td className="num px-5 py-3.5 text-right">{w}</td>
-                  <td className="max-w-[260px] px-5 py-3.5 text-[13px]">
+                  <td className="num px-4 py-3.5 text-right font-bold text-ink">{leads}</td>
+                  <td className="num px-4 py-3.5 text-right">{working}</td>
+                  <td className="num px-4 py-3.5 text-right">{w}</td>
+                  <td className="min-w-[170px] px-4 py-3.5 text-[13px]">
                     {last ? (
                       <>
-                        <p className="truncate text-ink">{last.label}</p>
+                        <p className="line-clamp-2 text-ink" title={last.label}>{last.label}</p>
                         <p className="text-muted">{timeAgo(last.t)}</p>
                       </>
                     ) : (
