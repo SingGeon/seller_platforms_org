@@ -614,6 +614,7 @@ the server wakes up or is down, desktop-only notice on phones.
 - **AI answers: measured on the free chain.** `calibration/run_calibration.py --provider free` (2026-09-26, answered by
   Gemini, then Groq `openai/gpt-oss-120b` once Gemini's daily quota ran out): **92% accuracy (11/12) and 100%
   yes-precision (8/8)**, above the GIG-26 ≥ 80% target. The one miss answers "no" instead of "unknown" to "new CIO?"
-  about a long-standing CIO. The offline keyword backend scores 58% accuracy (7/12) and 80% yes-precision (4/5).
+  about a long-standing CIO. The local base model alone (Ollama `qwen2.5:3b`, laptop CPU, ~20 s per call): 75% accuracy
+  (9/12) and 88% yes-precision (7/8); its false "yes" is a breach at another company. The offline keyword backend scores 58% accuracy (7/12) and 80% yes-precision (4/5).
   Claude itself is not measured (no `ANTHROPIC_API_KEY`); its backend is tested through the real SDK with a mocked
   transport.
