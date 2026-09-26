@@ -7,9 +7,37 @@ from .config import get_settings
 from . import mongo
 
 
+_FREE_CHAIN = None
+
+
+def free_chain():
+    """The chained free providers, built once per process so their cooldowns and throttles are shared by every run."""
+    global _FREE_CHAIN
+    if _FREE_CHAIN is None:
+        from sales_pipeline.openai_compat import build_chain
+
+        s = get_settings()
+        keys = {"gemini": s.gemini_api_key, "groq": s.groq_api_key, "nvidia": s.nvidia_api_key, "mistral": s.mistral_api_key,
+                "openrouter": s.openrouter_api_key}
+        _FREE_CHAIN = build_chain(keys, chain=tuple(p.strip() for p in s.llm_chain.split(",") if p.strip()),
+                                  overrides=s.llm_model_overrides, ollama_url=s.ollama_url) or False
+    return _FREE_CHAIN or None
+
+
+def llm_name() -> str:
+    s = get_settings()
+    provider = s.llm_provider or ("anthropic" if s.anthropic_api_key else "")
+    if provider in ("anthropic", "heuristic"):
+        return provider
+    chain = free_chain()
+    return chain.name if chain else "heuristic"
+
+
 def get_llm() -> LLMBackend:
     s = get_settings()
-    provider = s.llm_provider or ("anthropic" if s.anthropic_api_key else "heuristic")
+    provider = s.llm_provider or ("anthropic" if s.anthropic_api_key else "free")
+    if provider == "free":
+        return free_chain() or HeuristicBackend()
     if provider == "anthropic":
         import anthropic
 

@@ -138,8 +138,9 @@ def build_graph(
                 validated = validate_answer(a, own_chunks)
                 answers[a.key] = validated
                 q = next(q for q in group if q.key == a.key)
-                key = cache_key("answer", llm.model, state.company.name, q.text, q.source_hint, [c.model_dump() for c in own_chunks])
-                cache.set(key, validated.model_dump())
+                if u.llm_calls:  # a model answered; an offline fallback (chain with every provider down) is not cached
+                    key = cache_key("answer", llm.model, state.company.name, q.text, q.source_hint, [c.model_dump() for c in own_chunks])
+                    cache.set(key, validated.model_dump())
         total = state.usage.model_copy()
         total.add(usage)
         return {"answers": [answers[q.key] for q in state.questions if q.key in answers], "usage": total, "errors": state.errors + errors}
@@ -165,7 +166,8 @@ def build_graph(
             if hit is not None:
                 return [DetectedEvent.model_validate(e) for e in hit], Usage(cache_hits=1)
             evs, u = await _with_retry(lambda: llm.classify_events(state.company, batch))
-            cache.set(key, [e.model_dump() for e in evs])
+            if u.llm_calls:  # see answer_questions: offline fallback results are not cached under the model's name
+                cache.set(key, [e.model_dump() for e in evs])
             return evs, u
 
         for res in await asyncio.gather(*(run_batch(b) for b in batches), return_exceptions=True):

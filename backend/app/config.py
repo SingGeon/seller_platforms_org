@@ -18,9 +18,20 @@ class Settings(BaseSettings):
     mongo_uri: str = "mongodb://localhost:27017"
     mongo_db: str = "leadradar"
 
-    # LLM: "anthropic" | "heuristic" | "" (auto: anthropic when ANTHROPIC_API_KEY is set)
+    # LLM: "anthropic" | "free" | "heuristic" | "" (auto: anthropic when ANTHROPIC_API_KEY is set, else the free
+    # providers below that have a key, chained, else the offline heuristic)
     llm_provider: str = ""
     anthropic_api_key: str = ""
+    # Free OpenAI-compatible providers (sales_pipeline/openai_compat.py), tried in LLM_CHAIN order; one that hits its
+    # quota is skipped for a while and the next answers. Ollama joins when it answers at OLLAMA_URL.
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
+    nvidia_api_key: str = ""
+    mistral_api_key: str = ""
+    openrouter_api_key: str = ""
+    llm_chain: str = "gemini,groq,nvidia,mistral,openrouter,ollama"
+    llm_model_overrides: str = ""  # e.g. "gemini=gemini-3.5-flash|gemini-3.5-flash-lite"
+    ollama_url: str = "http://localhost:11434"
     llm_model: str = "claude-opus-5"
     llm_small_model: str = "claude-haiku-4-5"
     llm_effort: str = "medium"

@@ -12,6 +12,7 @@ from . import mongo
 from .api import config_routes, lead_routes, seller_routes, source_routes
 from .auth import auth_guard
 from .config import get_settings
+from .llm_factory import llm_name
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -84,7 +85,7 @@ def create_app(session_factory: sessionmaker | None = None, llm_override=None, h
             db.execute(text("select 1"))
         mongo.db().command("ping")
         s = get_settings()
-        return {"status": "ok", "postgres": "ok", "mongodb": "ok", "llm": s.llm_provider or ("anthropic" if s.anthropic_api_key else "heuristic"),
+        return {"status": "ok", "postgres": "ok", "mongodb": "ok", "llm": llm_name(),
                 # the deployed commit (Render sets RENDER_GIT_COMMIT), to check that a push reached the cloud
                 "commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7] or None}
 

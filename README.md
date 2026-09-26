@@ -47,7 +47,18 @@ npm install && npm run dev      # http://localhost:5173
 - Start a run: `curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{}'`
 - Admin account (created in the database, never through the API): `python -m app.admin create --email you@company.md --name "Your Name"` (asks for the password)
 
-**Offline mode:** without `ANTHROPIC_API_KEY` the pipeline uses a deterministic keyword backend. It never produces
+**Free AI providers:** without `ANTHROPIC_API_KEY`, the analysis (signal answers with verbatim evidence, events,
+"why now", contact messages) runs on free LLM APIs chained in `LLM_CHAIN` order (`pipeline/sales_pipeline/openai_compat.py`):
+Google Gemini (`GEMINI_API_KEY`, free key at aistudio.google.com, models `gemini-3.5-flash` / `gemini-3.5-flash-lite`),
+then Groq, NVIDIA NIM, Mistral and OpenRouter when their key is set (`GROQ_API_KEY`, `NVIDIA_API_KEY`, `MISTRAL_API_KEY`,
+`OPENROUTER_API_KEY`), then a local Ollama if it answers at `OLLAMA_URL`. All speak the OpenAI chat-completions API and get
+the same prompts and JSON schemas as Claude. A model that answers 503 "high demand" hands over to the provider's other
+models; a provider over its quota or down is skipped for a while (1 h for a daily quota) and the next one answers; with
+none left the offline heuristic does, and its answers are never cached under a model's name, so the next run asks the AI
+again. `LLM_PROVIDER=heuristic` forces the offline mode, `LLM_MODEL_OVERRIDES="groq=model|small_model"` changes models.
+`/health` reports the active chain. Free tiers may use the prompts to improve their models: only public news is sent.
+
+**Offline mode:** without any AI key the pipeline uses a deterministic keyword backend. It never produces
 a false "yes", but it misses a lot. With `OFFLINE_COLLECT=true` nothing is fetched from the internet and only stored
 documents are analysed. `python -m app.seed --demo` loads 8 demo companies and sample documents paraphrasing the Annex 1
 Lufthansa / DHL examples (marked `meta.sample`, URLs on the reserved `.example` domain) so the demo works end to end
