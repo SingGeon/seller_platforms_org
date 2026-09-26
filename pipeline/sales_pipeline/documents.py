@@ -10,7 +10,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from rapidfuzz import fuzz
 
 SourceType = Literal["news", "web", "jobs", "crunchbase", "manual"]
@@ -39,6 +39,12 @@ class Document(BaseModel):
     published_at: datetime | None = None
     source: str = ""  # publisher / board / site name
     meta: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("published_at")
+    @classmethod
+    def _aware(cls, value: datetime | None) -> datetime | None:
+        # RSS dates with "-0000" parse without a timezone; mixing them with aware dates breaks sorting and comparisons.
+        return value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value
 
     @property
     def content_hash(self) -> str:

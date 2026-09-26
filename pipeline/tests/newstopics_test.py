@@ -34,3 +34,19 @@ def test_one_word_company_names_must_be_written_exactly():
     assert mentions_strictly("Electrica S.A.", "Atac cibernetic la Electrica")
     assert not mentions_strictly("Electrica S.A.", "O centrală electrică a fost oprită")
     assert mentions_strictly("Banca Transilvania S.A.", "banca transilvania anunta")
+
+
+def test_one_word_names_ignore_accents_but_not_case():
+    assert mentions_strictly("Poșta S.A.", "Posta anunta noi servicii")
+    assert not mentions_strictly("Poșta S.A.", "trimis prin posta")
+
+
+def test_dates_without_a_timezone_are_utc_so_they_sort_with_the_others():
+    from datetime import datetime, timezone
+
+    from sales_pipeline.documents import Document
+
+    naive = Document(source_type="news", url="https://a", published_at=datetime(2026, 9, 1))
+    aware = Document(source_type="news", url="https://b", published_at=datetime(2026, 9, 2, tzinfo=timezone.utc))
+    assert naive.published_at.tzinfo is not None
+    assert sorted([naive, aware], key=lambda d: d.published_at)[0] is naive

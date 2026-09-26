@@ -77,7 +77,12 @@ def mentions_strictly(name: str, text: str) -> bool:
     display = search_name(name).strip()
     if " " in _plain(display).strip():
         return True
-    return re.search(rf"(?<!\w){re.escape(display)}(?!\w)", text or "") is not None
+    # case-sensitive, accents ignored: "Poșta" also matches "Posta", never "posta"
+    return re.search(rf"(?<!\w){re.escape(_unaccent(display))}(?!\w)", _unaccent(text or "")) is not None
+
+
+def _unaccent(text: str) -> str:
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
 
 
 def normalize_domain(value: str | None) -> str | None:
