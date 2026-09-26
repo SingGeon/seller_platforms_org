@@ -1,6 +1,7 @@
-import { ChevronRight, Copy, ExternalLink, Globe, Send, Sparkles, UserSearch } from 'lucide-react'
+import { ChevronRight, Copy, ExternalLink, Globe, Hand, Send, Sparkles, UserSearch } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
+import { useSession } from '../auth/session'
 import { STAGES, getCompany, getQuestions, getSeller, getServices, isLive, isNew, patchCompany, timeAgo } from '../data/api'
 import { describe } from '../data/team'
 import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
@@ -216,6 +217,10 @@ export default function Company() {
   const c = getCompany(id)
   const [stage, setStage] = useState<Stage | undefined>(c?.stage)
   const [sellerId, setSellerId] = useState<number | null>(c?.sellerId ?? null)
+  const [owner, setOwner] = useState<string | null>(c?.owner ?? null)
+  const { seller: me } = useSession()
+  // Only an admin hands a lead to anyone; a sales manager can only take an unassigned lead or give back their own.
+  const isAdmin = me?.role === 'admin'
   const [tab, setTab] = useState<Tab>('signals')
   const [sellers, setSellers] = useState<Seller[]>([])
   const [notes, setNotes] = useState<Note[]>([])
@@ -226,10 +231,10 @@ export default function Company() {
   const cid = c?.id
   useEffect(() => {
     if (!live || !cid) return
-    listSellers().then(setSellers).catch(() => setSellers([]))
+    if (isAdmin) listSellers().then(setSellers).catch(() => setSellers([]))
     getAssignment(cid).then((a) => setNotes(a.notes)).catch(() => setNotes([]))
     getActivity(cid).then(setActivity).catch(() => setActivity([]))
-  }, [live, cid])
+  }, [live, cid, isAdmin])
 
   const fail = (err: unknown) => setStatus({ ok: false, text: err instanceof Error ? err.message : String(err) })
 
@@ -252,15 +257,30 @@ export default function Company() {
   const changeOwner = (value: string) => {
     if (!c) return
     const next = value ? Number(value) : null
+    const prev = { sellerId, owner }
+    const name = next == null ? null : next === me?.id ? me.full_name : sellers.find((s) => s.id === next)?.full_name ?? null
     setSellerId(next)
-    if (!live) return
+    setOwner(name)
+    const self = next != null && next === me?.id
+    if (!live) {
+      patchCompany(c.id, { sellerId: next, owner: name })
+      setStatus({ ok: true, text: self ? 'Lead-ul este acum al tău.' : name ? `Asignat lui ${name}.` : 'Lead neasignat.' })
+      return
+    }
     saveAssignment(c.id, next == null ? { unassign: true } : { seller_id: next })
       .then((a) => {
         patchCompany(c.id, { sellerId: a.seller_id, owner: a.owner })
-        setStatus({ ok: true, text: a.owner ? `Asignat lui ${a.owner}.` : 'Lead neasignat.' })
+        setOwner(a.owner)
+        setStatus({ ok: true, text: self ? 'Lead-ul este acum al tău.' : a.owner ? `Asignat lui ${a.owner}.` : 'Lead neasignat.' })
       })
-      .catch(fail)
+      .catch((err) => {
+        setSellerId(prev.sellerId)
+        setOwner(prev.owner)
+        fail(err)
+      })
   }
+  // Demo mode has no seller ids for the mock owners, so "mine" falls back to the name.
+  const mine = me != null && (sellerId != null ? sellerId === me.id : owner === me.full_name)
 
   const hubspot = () => {
     if (!c || !live || c.leadIds.length === 0) return
@@ -402,18 +422,29 @@ export default function Company() {
             <dl className="grid grid-cols-[110px_minmax(0,1fr)] gap-x-3 gap-y-3 p-5 text-[14px]">
               <dt className="text-muted">Responsabil</dt>
               <dd className="flex min-w-0 items-center gap-2 font-bold">
-                <Avatar name={sellers.find((s) => s.id === sellerId)?.full_name ?? c.owner} size={22} />
-                {live ? (
+                <Avatar name={owner} size={22} />
+                {isAdmin && live ? (
                   <select value={sellerId ?? ''} onChange={(e) => changeOwner(e.target.value)} className="h-8 w-full min-w-0 flex-1 truncate text-[13px]" aria-label="Responsabil">
                     <option value="">Neasignat</option>
-                    {sellers.filter((s) => s.active).map((s) => (
+                    {sellers.filter((s) => s.active && s.role !== 'admin').map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.full_name}
                       </option>
                     ))}
                   </select>
+                ) : owner == null && me && !isAdmin ? (
+                  <Button size="sm" variant="primary" onClick={() => changeOwner(String(me.id))}>
+                    <Hand size={14} aria-hidden /> Preia lead-ul
+                  </Button>
                 ) : (
-                  (c.owner ?? 'Neasignat')
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-3">
+                    <span className="truncate">{owner ? (mine ? `${owner} (tu)` : owner) : 'Neasignat'}</span>
+                    {mine && !isAdmin && (
+                      <button type="button" onClick={() => changeOwner('')} className="text-[13px] font-normal text-muted underline underline-offset-4 hover:text-ink">
+                        Renunță
+                      </button>
+                    )}
+                  </span>
                 )}
               </dd>
               <dt className="text-muted">Industrie</dt>
