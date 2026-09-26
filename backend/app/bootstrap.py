@@ -271,10 +271,24 @@ async def refresh_news(
     sf: sessionmaker, *, countries: list[str] | None = None, gdelt: bool = False, analyze: bool = True,
     concurrency: int = 2, say: Callable[[str], None] = print, client: httpx.AsyncClient | None = None,
     providers: tuple[str, ...] = NEWS_PROVIDERS, press: bool = True, fresh_hours: float = NEWS_FRESH_HOURS,
+    discover: bool = False,
 ) -> dict[str, Any]:
     """News for companies already in the database (no registry calls), e.g. after a news provider throttled a
-    bootstrap. Companies that got news in the last `fresh_hours` are skipped, so it can be re-run safely."""
+    bootstrap. Companies that got news in the last `fresh_hours` are skipped, so it can be re-run safely.
+    `discover` first syncs the discovery sources that are due (tenders, jobs, press releases, breaches), so the
+    companies they find get news and analysis in the same run."""
     started = time.monotonic()
+    stats: dict[str, Any] = {}
+    if discover:
+        from .discovery import due_sources, run_discovery
+
+        with sf() as db:
+            due = due_sources(db)
+        if due:
+            say(f"Discovery: {len(due)} sources ({', '.join(due)})")
+            run = mongo.create_run(kind="discovery", params={"sources": due, "trigger": "daily-refresh", "enrich_top_n": 0})
+            await run_discovery(sf, run.id, sources=due, enrich_top_n=0)
+            stats["discovery"] = (mongo.get(mongo.RUNS, run.id).stats or {})
     query = {"country": {"$in": countries}} if countries else {}
     ids = mongo.ids(mongo.COMPANIES, query)
     todo = companies_needing_news(ids, fresh_hours)
@@ -282,7 +296,8 @@ async def refresh_news(
     own_client = client is None
     client = client or httpx.AsyncClient(timeout=60, follow_redirects=True, headers={"User-Agent": "OrangeSignals/0.1 (B2B sales research)"})
     try:
-        stats: dict[str, Any] = {"press": await local_press_news(client, ids, say)} if press else {}
+        if press:
+            stats["press"] = await local_press_news(client, ids, say)
         if providers or gdelt:
             stats["news"] = await fetch_news(sf, client, todo, gdelt=gdelt, concurrency=concurrency, say=say, providers=providers)
     finally:
@@ -329,6 +344,7 @@ def main() -> None:
     parser.add_argument("--news-providers", default=",".join(NEWS_PROVIDERS),
                         help="per-company news providers: bing_news,bing_topics (opt-in: google_news,google_topics,gdelt,gdelt_topics; empty = press feeds only)")
     parser.add_argument("--no-press", action="store_true", help="skip the RO / MD business-press feeds")
+    parser.add_argument("--no-discovery", action="store_true", help="with --refresh-news: skip the discovery sources")
     parser.add_argument("--fresh-hours", type=float, default=NEWS_FRESH_HOURS,
                         help="with --refresh-news: skip companies that got news in the last N hours (a daily job needs less than 24)")
     args = parser.parse_args()
@@ -343,7 +359,7 @@ def main() -> None:
         providers = tuple(p.strip() for p in args.news_providers.split(",") if p.strip())
         asyncio.run(refresh_news(SessionLocal, countries=countries, gdelt=args.gdelt, analyze=not args.no_analyze,
                                  concurrency=args.news_concurrency, providers=providers, press=not args.no_press,
-                                 fresh_hours=args.fresh_hours))
+                                 fresh_hours=args.fresh_hours, discover=not args.no_discovery))
         return
     countries = countries or DEFAULT_COUNTRIES
     asyncio.run(

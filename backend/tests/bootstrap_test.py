@@ -161,3 +161,21 @@ def test_bootstrap_and_news_refresh_show_their_sources_as_run(seeded):
     asyncio.run(refresh_news(seeded, analyze=False, fresh_hours=0, client=registry_client(10), say=lambda m: None))
     with seeded() as db:
         assert db.get(SourceState, "company_news").last_run_at > states["company_news"].last_run_at
+
+
+def test_the_daily_refresh_first_syncs_the_due_discovery_sources(seeded, monkeypatch):
+    from app import discovery
+    from app.bootstrap import refresh_news
+
+    synced = []
+
+    async def fake_run_discovery(sf, run_id, *, sources, enrich_top_n, **kw):
+        synced.append((sources, enrich_top_n))
+        mongo.update(mongo.RUNS, run_id, {"status": "succeeded", "stats": {"sources": len(sources)}})
+
+    monkeypatch.setattr(discovery, "run_discovery", fake_run_discovery)
+    monkeypatch.setattr(discovery, "due_sources", lambda db: ["ted", "arbeitnow"])
+    stats = asyncio.run(refresh_news(seeded, analyze=False, providers=(), press=False, discover=True, say=lambda m: None))
+    assert synced == [(["ted", "arbeitnow"], 0)] and stats["discovery"] == {"sources": 2}
+    asyncio.run(refresh_news(seeded, analyze=False, providers=(), press=False, say=lambda m: None))
+    assert len(synced) == 1  # off unless asked (the CLI asks, --no-discovery skips it)
