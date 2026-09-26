@@ -202,6 +202,8 @@ def add_note(company_id: int, body: NoteIn, db: Session = Depends(get_db), selle
     return _assignment_out(a)
 
 
+# Newest first; entries written in the same millisecond (a stage and an owner change) keep the order they were written.
+NEWEST_FIRST = [("t", DESCENDING), ("_id", DESCENDING)]
 PIPELINE_ACTIONS = ("lead_stage", "lead_assign", "lead_note", "PUT /companies/{company_id}/assignment", "POST /companies/{company_id}/notes")
 
 
@@ -214,7 +216,7 @@ def pipeline_history(company_id: int | None = None, seller_id: int | None = None
         q["company_id"] = company_id
     if seller_id is not None:
         q["seller_id"] = seller_id
-    rows = list(mongo.db()[mongo.ACTIVITY].find(q, {"_id": 0}).sort("t", DESCENDING).limit(min(max(limit, 1), 2000)))
+    rows = list(mongo.db()[mongo.ACTIVITY].find(q, {"_id": 0}).sort(NEWEST_FIRST).limit(min(max(limit, 1), 2000)))
     names = {c["_id"]: c["name"] for c in mongo.db()[mongo.COMPANIES].find(
         {"_id": {"$in": list({r["company_id"] for r in rows if r.get("company_id") is not None})}}, {"name": 1})}
     return [{**r, "company": names.get(r.get("company_id"))} for r in rows]
@@ -228,7 +230,7 @@ def activity(company_id: int | None = None, seller_id: int | None = None, limit:
         q["company_id"] = company_id
     if seller_id is not None:
         q["seller_id"] = seller_id
-    rows = mongo.db()[mongo.ACTIVITY].find(q, {"_id": 0}).sort("t", DESCENDING).limit(min(limit, 1000))
+    rows = mongo.db()[mongo.ACTIVITY].find(q, {"_id": 0}).sort(NEWEST_FIRST).limit(min(limit, 1000))
     return list(rows)
 
 
