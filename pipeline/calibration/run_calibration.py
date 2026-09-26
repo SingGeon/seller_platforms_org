@@ -2,6 +2,7 @@
 
     python calibration/run_calibration.py --provider heuristic
     ANTHROPIC_API_KEY=... python calibration/run_calibration.py --provider anthropic
+    GEMINI_API_KEY=... GROQ_API_KEY=... python calibration/run_calibration.py --provider free   (the free AI chain)
 
 Reports accuracy over all cases and precision of "yes" answers (the metric that
 matters to a sales rep: a wrong "yes" wastes an outreach).
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,8 +21,18 @@ from sales_pipeline import CompanyInfo, Document, QuestionSpec, make_backend, ru
 CASES = Path(__file__).with_name("cases.json")
 
 
+def free_chain():
+    from sales_pipeline.openai_compat import build_chain
+
+    keys = {name: os.environ.get(f"{name.upper()}_API_KEY", "") for name in ("gemini", "groq", "nvidia", "mistral", "openrouter")}
+    chain = build_chain(keys, overrides=os.environ.get("LLM_MODEL_OVERRIDES", ""), ollama_model=os.environ.get("OLLAMA_MODEL", ""))
+    if chain is None:
+        raise SystemExit("no free AI provider: set GEMINI_API_KEY (or another key), or start Ollama")
+    return chain
+
+
 async def evaluate(provider: str) -> dict:
-    llm = make_backend(provider)
+    llm = free_chain() if provider == "free" else make_backend(provider)
     now = datetime.now(timezone.utc)
     rows = []
     for case in json.loads(CASES.read_text()):
@@ -38,17 +50,20 @@ async def evaluate(provider: str) -> dict:
         "accuracy": round(sum(r["ok"] for r in rows) / len(rows), 3),
         "yes_precision": round(sum(r["expected"] == "yes" for r in yes) / len(yes), 3) if yes else None,
         "cases": rows,
+        "answered_by": dict(getattr(llm, "used", {})),  # free chain: calls per provider ("heuristic" = offline fallback)
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--provider", default=None, choices=["anthropic", "heuristic"])
+    parser.add_argument("--provider", default=None, choices=["anthropic", "free", "heuristic"])
     args = parser.parse_args()
     report = asyncio.run(evaluate(args.provider))
     for r in report["cases"]:
         print(f"{'OK ' if r['ok'] else 'ERR'} {r['id']:30} expected={r['expected']:8} got={r['got']:8} {r['reasoning'][:80]}")
     print(f"\nprovider={report['provider']} accuracy={report['accuracy']} yes_precision={report['yes_precision']}")
+    if report["answered_by"]:
+        print(f"answered_by={report['answered_by']}")
 
 
 if __name__ == "__main__":

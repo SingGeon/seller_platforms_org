@@ -71,7 +71,8 @@ in the meantime are real and stay). For real data, load the 1000+ company univer
 ```bash
 cd backend && pytest -q          # backend tests (SQLite + a throwaway MongoDB database per test, no network)
 cd ../pipeline && pytest -q      # pipeline tests (mocked HTTP + mocked Anthropic transport)
-python calibration/run_calibration.py --provider anthropic   # signal-answer precision (needs a key)
+python calibration/run_calibration.py --provider free        # signal-answer precision on the free AI chain (GEMINI_API_KEY, GROQ_API_KEY, ...)
+python calibration/run_calibration.py --provider anthropic   # the same with Claude (needs ANTHROPIC_API_KEY)
 cd ../frontend && npm run build  # type-check + production build
 ```
 
@@ -546,7 +547,7 @@ a "Date demo" badge. The API base URL comes from `VITE_API_URL` (default `http:/
 | GIG-18 Initial config with demo services | Done: the UI shows every service the server has (six seeded: APA, Cyber, Cloud, Data & AI, ERP / CRM, IoT) and admins add more with "Serviciu nou" |
 | GIG-19 Target company list | Done: 984 real companies (RO, MD, DE, AT) loaded from open registries; CSV import through `POST /companies/import` |
 | GIG-24 LinkedIn manual validation | Done: the "LinkedIn" button on the company record opens a manual company search (no scraping) |
-| GIG-31 Validate scoring on Annex 1 | Done: 12-case Annex 1 calibration set in `pipeline/calibration/` with `run_calibration.py`; offline backend 7/12 accuracy, 4/4 yes-precision |
+| GIG-31 Validate scoring on Annex 1 | Done: 12-case Annex 1 calibration set in `pipeline/calibration/` with `run_calibration.py`; free AI chain (Gemini → Groq) 11/12 accuracy, 8/8 yes-precision (2026-09-26); offline backend 7/12 accuracy, 4/5 yes-precision |
 | GIG-33 Frontend setup | Done: React + TypeScript + Vite + Tailwind, Orange design tokens, CRM layout, routing |
 | GIG-34 Leads page | Done, live data: multi-select filters (service, industry sector, country, stage) with "Aplică filtrele", pagination, CSV export |
 | GIG-35 Company record | Done, live data: stage, owner ("Preia lead-ul"), notes, timeline, signals with evidence, outreach message, HubSpot |
@@ -597,7 +598,9 @@ the server wakes up or is down, desktop-only notice on phones.
   data host (`python -m sales_pipeline.sources.smoke` → 403 from the egress proxy for all 30 checks). They are covered
   by mocked-HTTP tests built from each API's documented response format. Run the smoke script on a machine with
   internet access to confirm them live.
-- **Claude answers: not measured.** No `ANTHROPIC_API_KEY` was available. The Anthropic backend is tested through the
-  real SDK with a mocked transport (request shape and parsing). The GIG-26 ≥ 80% precision target still has to be
-  measured with `calibration/run_calibration.py --provider anthropic`. The offline keyword backend scores 58% accuracy
-  (7/12) and 100% yes-precision (4/4) on that set.
+- **AI answers: measured on the free chain.** `calibration/run_calibration.py --provider free` (2026-09-26, answered by
+  Gemini, then Groq `openai/gpt-oss-120b` once Gemini's daily quota ran out): **92% accuracy (11/12) and 100%
+  yes-precision (8/8)**, above the GIG-26 ≥ 80% target. The one miss answers "no" instead of "unknown" to "new CIO?"
+  about a long-standing CIO. The offline keyword backend scores 58% accuracy (7/12) and 80% yes-precision (4/5).
+  Claude itself is not measured (no `ANTHROPIC_API_KEY`); its backend is tested through the real SDK with a mocked
+  transport.
