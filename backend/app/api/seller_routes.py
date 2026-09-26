@@ -141,10 +141,19 @@ def get_assignment(company_id: int, db: Session = Depends(get_db), _: Seller = D
     return _assignment_out(a) if a else AssignmentOut(company_id=company_id, stage="nou")
 
 
-@router.put("/companies/{company_id}/assignment", response_model=AssignmentOut, tags=["crm"], summary="Move a lead to a stage and/or assign an owner")
-def update_assignment(company_id: int, body: AssignmentIn, db: Session = Depends(get_db), _: Seller = Depends(current_seller)):
+@router.put("/companies/{company_id}/assignment", response_model=AssignmentOut, tags=["crm"],
+            summary="Move a lead to a stage and/or set its owner: an admin assigns anyone, a seller only takes a free lead or gives back their own")
+def update_assignment(company_id: int, body: AssignmentIn, db: Session = Depends(get_db), caller: Seller = Depends(current_seller)):
     company_or_404(company_id)
     a = _get_or_new(db, company_id)
+    if caller.role != "admin":
+        if body.unassign and a.seller_id not in (None, caller.id):
+            raise HTTPException(403, "You can only give back a lead you own")
+        if not body.unassign and body.seller_id is not None:
+            if body.seller_id != caller.id:
+                raise HTTPException(403, "Only an admin can assign a lead to someone else")
+            if a.seller_id not in (None, caller.id):
+                raise HTTPException(403, "This lead already has an owner")
     if body.stage is not None:
         a.stage = body.stage
     if body.unassign:

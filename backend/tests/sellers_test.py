@@ -83,6 +83,24 @@ def test_dashboard_joins_postgres_assignment_with_mongo_scores_and_logs_activity
     assert all(a["seller"] == "Admin One" and a["seller_id"] for a in log)
 
 
+def test_only_an_admin_assigns_leads_a_seller_takes_free_ones_or_gives_back_their_own(api, admin):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    ana = api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"}).json()
+    ion = api.post("/sellers", headers=h, json={"email": "ion@leadradar.md", "full_name": "Ion", "password": "ion-pass-12"}).json()
+    free, taken = [c["id"] for c in api.get("/companies", headers=h).json()[:2]]
+    assert api.put(f"/companies/{taken}/assignment", headers=h, json={"seller_id": ion["id"]}).json()["owner"] == "Ion"  # admin: anyone
+    ah = login(api, "ana@leadradar.md", "ana-pass-12")
+
+    assert api.put(f"/companies/{free}/assignment", headers=ah, json={"seller_id": ion["id"]}).status_code == 403  # not to someone else
+    assert api.put(f"/companies/{taken}/assignment", headers=ah, json={"seller_id": ana["id"]}).status_code == 403  # not someone's lead
+    assert api.put(f"/companies/{taken}/assignment", headers=ah, json={"unassign": True}).status_code == 403
+    assert api.get(f"/companies/{taken}/assignment", headers=ah).json()["owner"] == "Ion"
+
+    assert api.put(f"/companies/{free}/assignment", headers=ah, json={"seller_id": ana["id"]}).json()["owner"] == "Ana"  # take a free lead
+    assert api.put(f"/companies/{free}/assignment", headers=ah, json={"stage": "contactat"}).json()["stage"] == "contactat"
+    assert api.put(f"/companies/{free}/assignment", headers=ah, json={"unassign": True}).json()["owner"] is None  # give it back
+
+
 def test_seller_cannot_manage_accounts(api, admin):
     h = login(api, ADMIN["email"], ADMIN["password"])
     api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"})
