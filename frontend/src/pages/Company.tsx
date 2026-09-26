@@ -2,7 +2,7 @@ import { ChevronRight, Copy, ExternalLink, Globe, Hand, Send, Sparkles, UserSear
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
-import { STAGES, getCompany, getQuestions, getServices, isNew, patchCompany, signalHeadline, timeAgo, useDataVersion } from '../data/api'
+import { STAGES, getCompany, inPipeline, stageChange, getQuestions, getServices, isNew, patchCompany, signalHeadline, timeAgo, useDataVersion } from '../data/api'
 import { describe } from '../data/team'
 import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
 import { listSellers, type Seller } from '../data/client'
@@ -249,15 +249,19 @@ export default function Company() {
     if (!c) return
     const prev = stage
     setStage(next)
-    saveAssignment(c.id, { stage: next })
-      .then(() => {
-        patchCompany(c.id, { stage: next })
+    const body = stageChange({ ...c, sellerId }, next, me)
+    saveAssignment(c.id, body)
+      .then((a) => {
+        patchCompany(c.id, { stage: next, sellerId: a.seller_id, owner: a.owner })
+        setSellerId(a.seller_id)
+        setOwner(a.owner)
         const label = STAGES.find((s) => s.id === next)?.label ?? next
         setStatus({
           ok: true,
-          text:
-            next === 'nou' || next === 'descalificat'
-              ? `Stadiu salvat: ${label}. Lead-ul nu apare în Pipeline.`
+          text: !inPipeline(next)
+            ? `Stadiu salvat: ${label}. Lead-ul nu apare în Pipeline.`
+            : body.seller_id != null
+              ? `Stadiu salvat: apare în Pipeline la „${label}”, iar tu ești acum responsabilul lead-ului.`
               : `Stadiu salvat: apare în Pipeline la „${label}” pentru toată echipa.`,
         })
       })

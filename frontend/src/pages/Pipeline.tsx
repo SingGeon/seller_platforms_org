@@ -1,8 +1,8 @@
 import { Table2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { friendlyError } from '../auth/session'
-import { STAGES, bestService, getCompanies, patchCompany, recentlyChanged, signalHeadline, topSignal, useDataVersion } from '../data/api'
+import { friendlyError, useSession } from '../auth/session'
+import { STAGES, bestService, getCompanies, stageChange, patchCompany, recentlyChanged, signalHeadline, topSignal, useDataVersion } from '../data/api'
 import { saveAssignment } from '../data/backend'
 import type { Stage } from '../data/types'
 import { Avatar, PageHeader, ScoreMeter, ServiceTag, btn } from '../components/ui'
@@ -22,6 +22,7 @@ const forget = (id: string) => (moved: Record<string, Stage>) => {
 
 export default function Pipeline() {
   useDataVersion()
+  const { seller: me } = useSession()
   // Stages moved here and not yet confirmed by the server; everything else comes from the (auto-refreshed) data.
   const [moved, setMoved] = useState<Record<string, Stage>>({})
   const all = getCompanies()
@@ -37,10 +38,12 @@ export default function Pipeline() {
     setDragId(null)
     setOver(null)
     if (!id || stages[id] === stage) return
+    const company = all.find((c) => c.id === id)
+    if (!company) return
     setMoved((s) => ({ ...s, [id]: stage }))
-    saveAssignment(id, { stage })
-      .then(() => {
-        patchCompany(id, { stage })
+    saveAssignment(id, stageChange(company, stage, me))
+      .then((a) => {
+        patchCompany(id, { stage, sellerId: a.seller_id, owner: a.owner })
         setMoved(forget(id))
         setError(null)
       })

@@ -103,6 +103,18 @@ export const STAGES: { id: Stage; label: string }[] = [
   { id: 'descalificat', label: 'Descalificat' },
 ]
 
+/** Stages that put a lead on the pipeline board ("Nou" and "Descalificat" stay in the list only). */
+export const inPipeline = (s: Stage) => s !== 'nou' && s !== 'descalificat'
+
+/**
+ * Body for a stage change. A sales manager who moves a lead without an owner into the pipeline becomes its owner in
+ * the same request (the server lets a seller take a free lead); admins only change the stage.
+ */
+export function stageChange(c: Company, next: Stage, by: Seller | null): { stage: Stage; seller_id?: number } {
+  const takes = by != null && by.role !== 'admin' && c.sellerId == null && inPipeline(next)
+  return takes ? { stage: next, seller_id: by.id } : { stage: next }
+}
+
 export const stageLabel = (s: Stage) => STAGES.find((x) => x.id === s)!.label
 
 export const isNew = (c: Company) => Date.now() - new Date(c.firstSeen).getTime() < 72 * 3600_000
