@@ -2,6 +2,7 @@ import { StrictMode, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from 'react-router'
 import { SessionProvider, useSession } from './auth/session'
+import DesktopOnly from './components/DesktopOnly'
 import Layout from './components/Layout'
 import './index.css'
 import Account from './pages/Account'
@@ -76,8 +77,10 @@ const router = createBrowserRouter([
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <SessionProvider>
-      <RouterProvider router={router} />
-    </SessionProvider>
+    <DesktopOnly>
+      <SessionProvider>
+        <RouterProvider router={router} />
+      </SessionProvider>
+    </DesktopOnly>
   </StrictMode>,
 )

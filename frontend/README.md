@@ -39,7 +39,7 @@ and reloads the data when it ends.
 (`/auth/login`, `/auth/me`, `POST /sellers`, `PUT /sellers/{id}`, `GET /activity`). At startup it waits up to two
 minutes for `/auth/status`, because the free Render instance needs about a minute to wake up; if the server still does
 not answer, the app says so and offers a retry instead of showing anything invented. The same goes for a failed data
-load after login. The login background loop lives in `public/media/`. The app is built for desktop screens.
+load after login. The login background loop lives in `public/media/`. The app is built for desktop screens: below 1024 px wide (phones, small tablets) `src/components/DesktopOnly.tsx` shows a notice with the app address to open on a computer, and a "continue anyway" link.
 
 ## Design tokens
 
