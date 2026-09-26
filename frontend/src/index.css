@@ -114,7 +114,23 @@
   animation: blip 1.6s ease-in-out infinite;
 }
 
+/* A lead a colleague just moved or took over: an orange glow that fades once. */
+@keyframes changed {
+  0%,
+  35% {
+    box-shadow: 0 0 0 3px var(--color-orange);
+    background-color: var(--color-orange-wash);
+  }
+  100% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+.changed {
+  animation: changed 2.4s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .changed,
   .rise,
   .blip {
     animation: none;

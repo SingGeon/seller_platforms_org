@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { loadBackendData, runDiscovery, type BackendData } from './backend'
+import { listAssignments, loadBackendData, runDiscovery, type BackendData } from './backend'
 import type { Seller } from './client'
 import type { Company, ServiceId, Signal, Stage } from './types'
 
@@ -38,6 +38,32 @@ export async function loadData(): Promise<void> {
 export function clearData() {
   store = { companies: [], services: [], questions: [], sources: [] }
   loadedAt = null
+  bump()
+}
+
+// Leads whose stage or owner was just changed by someone else, so the UI can highlight them once.
+let changedByOthers = new Set<string>()
+export const recentlyChanged = (id: string) => changedByOthers.has(id)
+
+/**
+ * Pulls the stage and owner of every lead (GET /assignments) and applies what changed since the last look.
+ * Polled every few seconds, so a card moved by a colleague moves on everyone's screen without a full reload.
+ */
+export async function syncAssignments(): Promise<void> {
+  const rows = await listAssignments()
+  const byId = new Map(rows.map((a) => [String(a.company_id), a]))
+  const changed = new Set<string>()
+  const companies = store.companies.map((c) => {
+    const a = byId.get(c.id)
+    if (!a) return c
+    const stage = a.stage ?? c.stage
+    if (stage === c.stage && a.seller_id === c.sellerId && a.owner === c.owner) return c
+    changed.add(c.id)
+    return { ...c, stage, sellerId: a.seller_id, owner: a.owner, updatedAt: a.updated_at ?? c.updatedAt }
+  })
+  if (!changed.size) return
+  store = { ...store, companies }
+  changedByOthers = changed
   bump()
 }
 

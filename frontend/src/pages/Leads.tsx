@@ -1,7 +1,7 @@
 import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, ListFilter, Search } from 'lucide-react'
 import { type FormEvent, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { STAGES, bestService, getCompanies, getServices, isNew, signalHeadline, timeAgo, topSignal, useDataVersion } from '../data/api'
+import { STAGES, bestService, getCompanies, getServices, isNew, recentlyChanged, signalHeadline, timeAgo, topSignal, useDataVersion } from '../data/api'
 import { OTHER_INDUSTRY, industryGroup } from '../data/industry'
 import MultiSelect from '../components/MultiSelect'
 import { Avatar, Button, NewBadge, PageHeader, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, StageTag, btn } from '../components/ui'
@@ -298,7 +298,7 @@ export default function Leads() {
                 <tr
                   key={c.id}
                   onClick={() => navigate(`/leads/${c.id}`)}
-                  className={`cursor-pointer border-b border-line align-top transition-colors hover:bg-orange-wash ${disq ? 'text-muted' : ''}`}
+                  className={`cursor-pointer border-b border-line align-top transition-colors hover:bg-orange-wash ${disq ? 'text-muted' : ''} ${recentlyChanged(c.id) ? 'changed' : ''}`}
                 >
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-2">

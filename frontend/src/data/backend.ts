@@ -194,6 +194,9 @@ export interface Note { t: string; seller_id: number; author: string; text: stri
 export interface Assignment { company_id: number; seller_id: number | null; owner: string | null; stage: Stage; notes: Note[]; updated_at: string | null }
 
 export const getAssignment = (companyId: string) => getJson<Assignment>(`/companies/${companyId}/assignment`)
+/** Stage and owner of every lead that has one (a small payload, polled for live updates). */
+export const listAssignments = () => getJson<Assignment[]>('/assignments', 10_000)
+
 export const saveAssignment = (companyId: string, body: { stage?: Stage; seller_id?: number; unassign?: boolean }) =>
   putJson<Assignment>(`/companies/${companyId}/assignment`, body)
 export const addNote = (companyId: string, text: string) => postJson<Assignment>(`/companies/${companyId}/notes`, { text })

@@ -2,7 +2,7 @@ import { Activity, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, Ref
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useSession } from '../auth/session'
-import { dataLoadedAt, getCompanies, getSources, loadData, timeAgo, useDataVersion } from '../data/api'
+import { dataLoadedAt, getCompanies, getSources, loadData, syncAssignments, timeAgo, useDataVersion } from '../data/api'
 import { Avatar } from './ui'
 
 function Logo() {
@@ -236,8 +236,35 @@ function Sidebar() {
   )
 }
 
+// Stage and owner changes by colleagues (drag & drop, "Preia lead-ul") reach every open screen within this delay.
+const LIVE_MS = 10_000
+
+function useLiveAssignments() {
+  useEffect(() => {
+    let busy = false
+    const tick = async () => {
+      if (busy || document.visibilityState !== 'visible') return
+      busy = true
+      try {
+        await syncAssignments()
+      } catch {
+        // a missed poll is retried on the next tick; the full refresh reports lasting errors
+      } finally {
+        busy = false
+      }
+    }
+    const timer = setInterval(() => void tick(), LIVE_MS)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [])
+}
+
 export default function Layout() {
   useDataVersion()
+  useLiveAssignments()
   // Re-render once a minute so "acum X min" labels stay true.
   const [, setTick] = useState(0)
   useEffect(() => {

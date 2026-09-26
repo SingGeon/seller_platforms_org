@@ -2,12 +2,13 @@ import { Table2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { friendlyError } from '../auth/session'
-import { STAGES, bestService, getCompanies, patchCompany, signalHeadline, topSignal, useDataVersion } from '../data/api'
+import { STAGES, bestService, getCompanies, patchCompany, recentlyChanged, signalHeadline, topSignal, useDataVersion } from '../data/api'
 import { saveAssignment } from '../data/backend'
 import type { Stage } from '../data/types'
 import { Avatar, PageHeader, ScoreMeter, ServiceTag, btn } from '../components/ui'
 
-const COLUMNS = STAGES.filter((s) => s.id !== 'descalificat')
+// A lead enters the pipeline when someone gives it a stage on its page; new and disqualified leads stay in the list.
+const COLUMNS = STAGES.filter((s) => s.id !== 'nou' && s.id !== 'descalificat')
 
 // A column shows this many cards at first; "Arată încă" adds the next batch (the Nou column can hold ~1000 leads).
 const BATCH = 30
@@ -29,7 +30,7 @@ export default function Pipeline() {
   const [over, setOver] = useState<Stage | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [limits, setLimits] = useState<Partial<Record<Stage, number>>>({})
-  const companies = all.filter((c) => stages[c.id] !== 'descalificat')
+  const companies = all.filter((c) => COLUMNS.some((col) => col.id === stages[c.id]))
 
   const drop = (stage: Stage) => {
     const id = dragId
@@ -53,7 +54,7 @@ export default function Pipeline() {
     <div className="rise">
       <PageHeader
         title="Pipeline"
-        subtitle="Trage cardurile între coloane pentru a schimba stadiul. Se salvează pentru toată echipa."
+        subtitle="Lead-urile intră aici când le dai un stadiu din fișa lead-ului. Trage cardurile între coloane ca să schimbi stadiul; mutările colegilor apar în câteva secunde."
         actions={
           <Link to="/leads" className={btn('ghost')}>
             <Table2 size={16} aria-hidden /> Vizualizare tabel
@@ -62,7 +63,13 @@ export default function Pipeline() {
       />
       {error && <p className="mb-3 bg-danger-bg px-3 py-2 font-bold text-danger" role="alert">{error}</p>}
       {/* The board fits the window; each column scrolls on its own instead of stretching the page. */}
-      <div className="grid h-[calc(100vh-13rem)] min-h-[420px] min-w-[1000px] grid-cols-5 gap-3">
+      {companies.length === 0 && (
+        <p className="mb-3 border-l-4 border-orange bg-white px-4 py-3 text-[14px]">
+          Pipeline-ul e gol. Deschide un lead din <Link to="/leads" className="font-bold underline underline-offset-4">Lead-uri</Link> și alege-i
+          stadiul (de exemplu „Calificat”) ca să apară aici pentru toată echipa.
+        </p>
+      )}
+      <div className="grid h-[calc(100vh-13rem)] min-h-[420px] min-w-[900px] grid-cols-4 gap-3">
         {COLUMNS.map((col) => {
           const items = companies.filter((c) => stages[c.id] === col.id).sort((a, b) => b.score - a.score)
           const limit = limits[col.id] ?? BATCH
@@ -78,7 +85,7 @@ export default function Pipeline() {
               className={`flex min-h-0 flex-col bg-band transition-colors ${over === col.id ? 'outline-2 outline-dashed outline-orange' : ''}`}
               aria-label={col.label}
             >
-              <header className={`flex shrink-0 items-center justify-between border-b-4 px-3 py-3 ${col.id === 'nou' ? 'border-orange' : 'border-ink'}`}>
+              <header className={`flex shrink-0 items-center justify-between border-b-4 px-3 py-3 ${col.id === 'calificat' ? 'border-orange' : 'border-ink'}`}>
                 <h2 className="text-[14px]">{col.label}</h2>
                 <span className="num bg-white px-1.5 text-[12px] font-bold">{items.length}</span>
               </header>
@@ -92,7 +99,7 @@ export default function Pipeline() {
                       draggable
                       onDragStart={() => setDragId(c.id)}
                       onDragEnd={() => setDragId(null)}
-                      className={`block border border-line bg-white p-3 transition-shadow hover:border-ink ${dragId === c.id ? 'opacity-40' : ''}`}
+                      className={`block border border-line bg-white p-3 transition-shadow hover:border-ink ${dragId === c.id ? 'opacity-40' : ''} ${recentlyChanged(c.id) ? 'changed' : ''}`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <p className="font-bold leading-snug">{c.name}</p>

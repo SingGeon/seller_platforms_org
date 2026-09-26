@@ -217,6 +217,15 @@ export default function Company() {
   const [stage, setStage] = useState<Stage | undefined>(c?.stage)
   const [sellerId, setSellerId] = useState<number | null>(c?.sellerId ?? null)
   const [owner, setOwner] = useState<string | null>(c?.owner ?? null)
+  // A colleague changed the stage or owner (live sync): show it here too.
+  const remoteKey = `${c?.stage}|${c?.sellerId}|${c?.owner}`
+  const [seenKey, setSeenKey] = useState(remoteKey)
+  if (c && seenKey !== remoteKey) {
+    setSeenKey(remoteKey)
+    setStage(c.stage)
+    setSellerId(c.sellerId)
+    setOwner(c.owner)
+  }
   const { seller: me } = useSession()
   // Only an admin hands a lead to anyone; a sales manager can only take an unassigned lead or give back their own.
   const isAdmin = me?.role === 'admin'
@@ -243,7 +252,14 @@ export default function Company() {
     saveAssignment(c.id, { stage: next })
       .then(() => {
         patchCompany(c.id, { stage: next })
-        setStatus({ ok: true, text: 'Stadiu salvat.' })
+        const label = STAGES.find((s) => s.id === next)?.label ?? next
+        setStatus({
+          ok: true,
+          text:
+            next === 'nou' || next === 'descalificat'
+              ? `Stadiu salvat: ${label}. Lead-ul nu apare în Pipeline.`
+              : `Stadiu salvat: apare în Pipeline la „${label}” pentru toată echipa.`,
+        })
       })
       .catch((err) => {
         setStage(prev)
@@ -333,10 +349,10 @@ export default function Company() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="stage">
+            <label className="text-[13px] font-bold text-muted" htmlFor="stage">
               Stadiu
             </label>
-            <select id="stage" value={stage} onChange={(e) => changeStage(e.target.value as Stage)} className="h-10 font-bold">
+            <select id="stage" value={stage} onChange={(e) => changeStage(e.target.value as Stage)} className="h-10 font-bold" title="Stadiul lead-ului: de la Calificat în sus apare în Pipeline">
               {STAGES.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
