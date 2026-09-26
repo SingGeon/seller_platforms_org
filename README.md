@@ -47,12 +47,14 @@ npm install && npm run dev      # http://localhost:5173
 - Start a run: `curl -X POST localhost:8000/runs -H 'content-type: application/json' -d '{}'`
 - Admin account (created in the database, never through the API): `python -m app.admin create --email you@company.md --name "Your Name"` (asks for the password)
 
-**Free AI providers:** without `ANTHROPIC_API_KEY`, the analysis (signal answers with verbatim evidence, events,
-"why now", contact messages) runs on free LLM APIs chained in `LLM_CHAIN` order (`pipeline/sales_pipeline/openai_compat.py`):
-Google Gemini (`GEMINI_API_KEY`, free key at aistudio.google.com, models `gemini-3.5-flash` / `gemini-3.5-flash-lite`),
-then Groq, NVIDIA NIM, Mistral and OpenRouter when their key is set (`GROQ_API_KEY`, `NVIDIA_API_KEY`, `MISTRAL_API_KEY`,
-`OPENROUTER_API_KEY`), then the local base model: Ollama at `OLLAMA_URL` with `OLLAMA_MODEL` (default `qwen2.5:3b`,
-CPU only, one request at a time, 15 min timeout), which answers when every cloud quota is used up. All speak the OpenAI chat-completions API and get
+**AI providers:** without `ANTHROPIC_API_KEY`, the analysis (signal answers with verbatim evidence, events,
+"why now", contact messages) runs on OpenAI-compatible LLM APIs chained in `LLM_CHAIN` order
+(`pipeline/sales_pipeline/openai_compat.py`). The default chain is `groq,ollama`: Groq `openai/gpt-oss-120b`
+(`GROQ_API_KEY`) on the pay-per-token Developer tier ($0.15 / $0.60 per million tokens, ~$5 for a full analysis of
+~860 companies; set a spending limit in console.groq.com), then the local base model: Ollama at `OLLAMA_URL` with
+`OLLAMA_MODEL` (default `qwen2.5:3b`, CPU only, one request at a time, 15 min timeout). Free providers can be added
+back, e.g. `LLM_CHAIN=gemini,groq,mistral,openrouter,ollama` with `GEMINI_API_KEY`, `MISTRAL_API_KEY`,
+`OPENROUTER_API_KEY`, `NVIDIA_API_KEY`. All speak the OpenAI chat-completions API and get
 the same prompts and JSON schemas as Claude. A model that answers 503 "high demand" hands over to the provider's other
 models; a provider over its quota or down is skipped for a while (1 h for a daily quota) and the next one answers; with
 none left the offline heuristic does, and its answers are never cached under a model's name, so the next run asks the AI

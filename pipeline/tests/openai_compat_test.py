@@ -100,7 +100,9 @@ def test_json_schema_rejected_falls_back_to_a_json_object_in_fences():
 
 
 def test_only_providers_with_a_key_join_the_chain_and_models_can_be_overridden():
-    chain = build_chain({"groq": "k", "gemini": "k"}, overrides="groq=openai/gpt-oss-120b|openai/gpt-oss-20b", ollama_available=False)
+    assert [b.name for b in build_chain({"groq": "k", "gemini": "k"}, ollama_available=False).backends] == ["groq"]  # default: paid Groq only
+    chain = build_chain({"groq": "k", "gemini": "k"}, chain=("gemini", "groq", "mistral"),
+                        overrides="groq=openai/gpt-oss-120b|openai/gpt-oss-20b", ollama_available=False)
     assert [b.name for b in chain.backends] == ["gemini", "groq"]  # chain order, not key order; no key -> left out
     groq = chain.backends[1]
     assert (groq.model, groq.small_model) == ("openai/gpt-oss-120b", "openai/gpt-oss-20b")
@@ -110,8 +112,8 @@ def test_only_providers_with_a_key_join_the_chain_and_models_can_be_overridden()
 
 
 def test_the_local_base_model_comes_last_runs_one_request_at_a_time_and_can_be_changed():
-    chain = build_chain({"gemini": "k"}, ollama_available=True)
-    assert [b.name for b in chain.backends] == ["gemini", "ollama"]
+    chain = build_chain({"groq": "k"}, ollama_available=True)
+    assert [b.name for b in chain.backends] == ["groq", "ollama"]
     local = chain.backends[-1]
     assert local.model == "qwen2.5:3b" and local._sem._value == 1 and local._client.timeout.read == 900.0
     other = build_chain({}, ollama_model="gemma3:4b", ollama_url="http://gpu-box:11434", ollama_available=True).backends[0]

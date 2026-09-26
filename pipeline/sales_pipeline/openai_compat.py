@@ -46,7 +46,8 @@ class Provider:
 PROVIDERS: dict[str, Provider] = {
     "gemini": Provider("gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3.5-flash", "gemini-3.5-flash-lite", 4.5,
                        busy_fallbacks=("gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-flash-lite-latest")),
-    "groq": Provider("groq", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "openai/gpt-oss-20b", 2.5),
+    # Groq Developer tier (pay per token, $0.15 / $0.60 per million): 1,000 requests and 250k tokens a minute
+    "groq": Provider("groq", "https://api.groq.com/openai/v1", "openai/gpt-oss-120b", "openai/gpt-oss-20b", 0.1, max_concurrency=6),
     "nvidia": Provider("nvidia", "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct", "meta/llama-3.3-70b-instruct", 1.6),
     "mistral": Provider("mistral", "https://api.mistral.ai/v1", "mistral-small-latest", "mistral-small-latest", 2.0),
     "openrouter": Provider("openrouter", "https://openrouter.ai/api/v1", "meta-llama/llama-3.3-70b-instruct:free",
@@ -56,7 +57,8 @@ PROVIDERS: dict[str, Provider] = {
     "ollama": Provider("ollama", "http://localhost:11434/v1", "qwen2.5:3b", "qwen2.5:3b", 0.0, needs_key=False,
                        timeout=900.0, max_concurrency=1),
 }
-DEFAULT_CHAIN = ("gemini", "groq", "nvidia", "mistral", "openrouter", "ollama")
+# The paid Groq model, then the local base model; the free providers can be added back with LLM_CHAIN.
+DEFAULT_CHAIN = ("groq", "ollama")
 
 
 class ProviderUnavailable(Exception):

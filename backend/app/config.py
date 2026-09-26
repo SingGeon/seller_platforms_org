@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str = ""
     mistral_api_key: str = ""
     openrouter_api_key: str = ""
-    llm_chain: str = "gemini,groq,nvidia,mistral,openrouter,ollama"
+    llm_chain: str = "groq,ollama"  # paid Groq, then the local model; free ones: gemini,nvidia,mistral,openrouter
     llm_model_overrides: str = ""  # e.g. "gemini=gemini-3.5-flash|gemini-3.5-flash-lite"
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = ""  # local base model (default qwen2.5:3b), used when the cloud providers are out of quota
