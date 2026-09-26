@@ -4,6 +4,7 @@ import { useSession } from '../auth/session'
 import { getQuestions, getServices, loadData, useDataVersion } from '../data/api'
 import { type ApiQuestionFull, type ConfigData, configApi, loadConfig } from '../data/backend'
 import type { ServiceId, SignalQuestion, Weight } from '../data/types'
+import DealModelTab from '../components/DealModelTab'
 import NewServiceForm from '../components/NewServiceForm'
 import { Button, Panel, PanelTitle, PageHeader, ServiceTag } from '../components/ui'
 
@@ -68,7 +69,7 @@ function Chips({ options, value, onChange, label }: { options: string[]; value: 
   )
 }
 
-type Tab = 'questions' | 'negative' | 'icp' | 'scoring'
+type Tab = 'questions' | 'negative' | 'icp' | 'scoring' | 'deal'
 
 // UI labels <-> backend values (ISO-2 markets, ICP industry vocabulary).
 const MARKETS: [string, string][] = [
@@ -260,6 +261,7 @@ export default function Config() {
     ['negative', 'Reguli negative'],
     ['icp', 'Profil client ideal'],
     ['scoring', 'Scorare'],
+    ['deal', 'Valoare contracte'],
   ]
 
   return (
@@ -497,6 +499,14 @@ export default function Config() {
       )}
 
       </fieldset>
+
+      {/* Has its own read-only handling and save button (PUT /deal-model), outside the questions / rules save bar. */}
+      {tab === 'deal' && (
+        <DealModelTab
+          services={(config?.services ?? []).map((s) => ({ slug: s.slug, name: getServices().find((u) => u.id === s.uiId)?.name ?? s.name }))}
+          isAdmin={isAdmin}
+        />
+      )}
 
       {isAdmin && (dirty || saved || error) && (
         <div className="fixed bottom-0 left-60 right-0 z-10 border-t-2 border-ink bg-white px-8 py-3">

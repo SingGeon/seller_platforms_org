@@ -11,6 +11,8 @@ export interface Service {
   id: ServiceId
   name: string
   short: string
+  /** The service's id on the server (PostgreSQL), to match API rows that carry service_id. */
+  apiId?: number
 }
 
 export interface SignalQuestion {

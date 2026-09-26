@@ -1,7 +1,8 @@
-import { ChevronRight, Copy, ExternalLink, Globe, Hand, Send, Sparkles, UserSearch } from 'lucide-react'
+import { ChevronRight, Copy, ExternalLink, Globe, Hand, RefreshCw, Send, Sparkles, UserSearch } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
+import DealPanel from '../components/DealPanel'
 import { STAGES, getCompany, inPipeline, stageChange, getQuestions, getServices, isNew, patchCompany, signalHeadline, timeAgo, useDataVersion } from '../data/api'
 import { describe } from '../data/team'
 import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
@@ -150,13 +151,13 @@ function Message({ c }: { c: CompanyT }) {
   const [error, setError] = useState<string | null>(null)
   const canGenerate = c.bestServiceApiId != null
 
-  const generate = () => {
+  const generate = (fresh = false) => {
     if (c.bestServiceApiId == null) return
     setBusy(true)
     setError(null)
-    generateOutreach(c.id, c.bestServiceApiId, channel, language)
+    generateOutreach(c.id, c.bestServiceApiId, channel, language, fresh)
       .then(setDraft)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
+      .catch((err: unknown) => setError(friendlyError(err)))
       .finally(() => setBusy(false))
   }
 
@@ -179,16 +180,24 @@ function Message({ c }: { c: CompanyT }) {
             <option value="DE">Germană</option>
           </select>
         </label>
-        <Button variant="primary" onClick={generate} disabled={!canGenerate || busy}>
+        <Button variant="primary" onClick={() => generate()} disabled={!canGenerate || busy}>
           <Send size={16} aria-hidden /> {busy ? 'Se scrie…' : 'Generează'}
         </Button>
+        {draft && (
+          <Button onClick={() => generate(true)} disabled={busy} title="Cere AI-ului o variantă nouă în loc de cea salvată">
+            <RefreshCw size={16} aria-hidden /> Generează din nou
+          </Button>
+        )}
       </div>
-      {!canGenerate && <p className="mt-3 text-muted">Disponibil când datele vin din backend și compania are un scor.</p>}
+      {!canGenerate && <p className="mt-3 text-muted">Disponibil după ce compania primește un scor pe un serviciu.</p>}
+      {canGenerate && !draft && (
+        <p className="mt-3 text-[13px] text-muted">Mesajul se salvează: la următoarea deschidere primești aceeași variantă, iar „Generează din nou” cere una nouă.</p>
+      )}
       {error && <p className="mt-3 font-bold text-danger" role="alert">{error}</p>}
       {draft && (
         <div className="mt-5 border border-line p-5">
           {draft.subject && <p className="mb-3 font-bold">Subiect: {draft.subject}</p>}
-          <p className="whitespace-pre-wrap leading-relaxed">{draft.body || '(AI-ul nu a scris niciun text: fără cheie Anthropic se folosește modul offline.)'}</p>
+          <p className="whitespace-pre-wrap leading-relaxed">{draft.body || '(AI-ul nu a scris niciun text de data asta. Încearcă „Generează din nou”.)'}</p>
           <div className="mt-4 flex flex-wrap items-center gap-3 text-[12px] text-muted">
             <span className={draft.grounded ? 'font-bold text-ok' : 'font-bold text-warn'}>
               {draft.grounded ? 'Bazat pe semnale reale' : 'Nu citează niciun semnal: verifică înainte de trimitere'}
@@ -427,6 +436,8 @@ export default function Company() {
               </p>
             </div>
           </Panel>
+
+          <DealPanel companyId={c.id} bestServiceApiId={c.bestServiceApiId} />
 
           <Panel>
             <PanelTitle>Detalii</PanelTitle>

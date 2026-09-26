@@ -1,12 +1,13 @@
 import { ChevronDown, Clock, Coins, Target, Trophy } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
+import { getCompanyDeals } from '../data/backend'
 import type { Company, Stage } from '../data/types'
 import { Panel, PanelTitle } from './ui'
 
-// What LeadRadar is worth to the team, computed from the data on screen plus two stated assumptions that anyone can
-// change (kept in this browser only; they are illustration inputs, not business data).
+// What LeadRadar is worth to the team: time saved (one stated assumption, kept in this browser only) and the value of
+// the pipeline, from the server's deal estimate of every lead in it (backend/app/deal_value.py).
 const KEY = 'leadradar.impactAssumptions'
-const DEFAULTS = { minutesPerCompany: 20, avgDeal: 20_000 }
+const DEFAULTS = { minutesPerCompany: 20 }
 
 // Usual B2B forecast weights: the chance a lead at this stage turns into a contract.
 const STAGE_WEIGHT: Partial<Record<Stage, number>> = { calificat: 0.1, contactat: 0.25, negociere: 0.5, castigat: 1 }
@@ -55,7 +56,35 @@ export default function ImpactPanel({ companies }: { companies: Company[] }) {
   const inPipeline = companies.filter((c) => STAGE_WEIGHT[c.stage] != null)
   const won = companies.filter((c) => c.stage === 'castigat').length
   const conversion = inPipeline.length ? Math.round((won / inPipeline.length) * 100) : 0
-  const weighted = inPipeline.reduce((sum, c) => sum + (STAGE_WEIGHT[c.stage] ?? 0) * a.avgDeal, 0)
+  const pipelineKey = inPipeline.map((c) => `${c.id}:${c.stage}:${c.bestServiceApiId}`).join('|')
+  const [value, setValue] = useState<{ key: string; weighted: number; profit: number; estimated: number } | null>(null)
+
+  // The estimate of each pipeline lead's best service (a handful of leads, so one request each is fine).
+  useEffect(() => {
+    let alive = true
+    Promise.all(
+      inPipeline.map(async (c) => {
+        const deals = await getCompanyDeals(c.id).catch(() => [])
+        const best = deals.find((d) => d.service_id === c.bestServiceApiId) ?? [...deals].sort((x, y) => y.final_score - x.final_score)[0]
+        return { w: STAGE_WEIGHT[c.stage] ?? 0, deal: best?.deal ?? null }
+      }),
+    ).then((rows) => {
+      if (!alive) return
+      const known = rows.filter((r) => r.deal)
+      setValue({
+        key: pipelineKey,
+        weighted: known.reduce((sum, r) => sum + r.w * r.deal!.value, 0),
+        profit: known.reduce((sum, r) => sum + r.w * r.deal!.profit, 0),
+        estimated: known.length,
+      })
+    })
+    return () => {
+      alive = false
+    }
+    // pipelineKey stands for the leads, their stages and best services
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineKey])
+  const current = value?.key === pipelineKey ? value : null
   const byStage = Object.keys(STAGE_WEIGHT).map((s) => ({ s, n: companies.filter((c) => c.stage === s).length }))
 
   return (
@@ -94,7 +123,16 @@ export default function ImpactPanel({ companies }: { companies: Company[] }) {
           value={`${conversion}%`}
           note={`${int(won)} ${won === 1 ? 'contract câștigat' : 'contracte câștigate'} din lead-urile calificate`}
         />
-        <Metric icon={Coins} label="Valoare pipeline ponderată" value={eur(weighted)} note="șansa pe stadiu × valoarea medie a contractului" />
+        <Metric
+          icon={Coins}
+          label="Valoare pipeline ponderată"
+          value={current ? eur(current.weighted) : '…'}
+          note={
+            current
+              ? `profit brut ponderat ${eur(current.profit)} · ${current.estimated === 1 ? 'un lead estimat' : `${int(current.estimated)} lead-uri estimate`}`
+              : 'se calculează…'
+          }
+        />
       </div>
 
       {open && (
@@ -108,7 +146,8 @@ export default function ImpactPanel({ companies }: { companies: Company[] }) {
               <b>Conversie</b> = lead-uri câștigate ÷ lead-uri calificate (tot ce e în Pipeline).
             </p>
             <p>
-              <b>Valoare ponderată</b> = pentru fiecare lead din Pipeline, valoarea medie a contractului × șansa stadiului:{' '}
+              <b>Valoare ponderată</b> = pentru fiecare lead din Pipeline, valoarea estimată a proiectului (pe serviciul potrivit: mărimea
+              companiei, piața și prețul serviciului) × șansa stadiului:{' '}
               {byStage.map(({ s, n }, k) => (
                 <span key={s}>
                   {STAGE_RO[s]} {Math.round((STAGE_WEIGHT[s as Stage] ?? 0) * 100)}% ({n}){k < byStage.length - 1 ? ', ' : '.'}
@@ -130,18 +169,10 @@ export default function ImpactPanel({ companies }: { companies: Company[] }) {
                 className="h-9 w-24 text-right"
               />
             </label>
-            <label className="flex items-center justify-between gap-4" htmlFor={`${uid}-d`}>
-              <span>Valoarea medie a unui contract (EUR)</span>
-              <input
-                id={`${uid}-d`}
-                type="number"
-                min={0}
-                step={1000}
-                value={a.avgDeal}
-                onChange={(e) => save({ ...a, avgDeal: Math.max(0, Number(e.target.value) || 0) })}
-                className="h-9 w-32 text-right"
-              />
-            </label>
+            <p className="text-[13px] text-muted">
+              Valoarea fiecărui proiect vine din estimarea serverului; ipotezele ei (prețul pe serviciu, marja, nivelul de preț pe țară) le
+              schimbă administratorul din Configurare → „Valoare contracte”.
+            </p>
             <button type="button" onClick={() => save(DEFAULTS)} className="text-[13px] font-bold underline underline-offset-4">
               Revino la valorile inițiale
             </button>

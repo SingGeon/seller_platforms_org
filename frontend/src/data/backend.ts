@@ -154,7 +154,7 @@ export async function loadBackendData(): Promise<BackendData> {
   const serviceById = new Map(active.map((s) => [s.id, serviceIdFor(s.slug)]))
   const services: Service[] = active.map((s) => {
     const id = serviceIdFor(s.slug)
-    return { id, name: SERVICE_NAMES[id]?.[0] ?? s.name, short: SERVICE_NAMES[id]?.[1] ?? s.name }
+    return { id, name: SERVICE_NAMES[id]?.[0] ?? s.name, short: SERVICE_NAMES[id]?.[1] ?? s.name, apiId: s.id }
   })
 
   const questionLists = await Promise.all(active.map((s) => getJson<ApiQuestion[]>(`/services/${s.id}/questions`)))
@@ -225,8 +225,48 @@ export interface Activity { t: string; action: string; seller: string | null; de
 export const getActivity = (companyId: string) => getJson<Activity[]>(`/activity?company_id=${companyId}&limit=50`)
 
 export interface Outreach { subject: string; body: string; grounded: boolean; sources: { url: string; date: string }[] }
-export const generateOutreach = (companyId: string, serviceApiId: number, channel: 'email' | 'linkedin' | 'followup', language: 'RO' | 'EN' | 'DE') =>
-  postJson<Outreach>(`/companies/${companyId}/outreach?service=${serviceApiId}&channel=${channel}&language=${language}&tone=consultative`, undefined, 120_000)
+/** The server keeps the last draft per company, service, channel and language; `fresh` asks the AI for a new one. */
+export const generateOutreach = (
+  companyId: string, serviceApiId: number, channel: 'email' | 'linkedin' | 'followup', language: 'RO' | 'EN' | 'DE', fresh = false,
+) =>
+  postJson<Outreach>(
+    `/companies/${companyId}/outreach?service=${serviceApiId}&channel=${channel}&language=${language}&tone=consultative${fresh ? '&fresh=true' : ''}`,
+    undefined,
+    120_000,
+  )
+
+// ------------------------------------------------------------------ deal estimate (backend/app/deal_value.py)
+/** What a lead could bring Orange Systems in the first year: value range, delivery cost, gross profit, win chance. */
+export interface Deal {
+  currency: string
+  value: number; value_low: number; value_high: number
+  cost: number; profit: number; profit_low: number; profit_high: number
+  gross_margin: number; win_probability: number; expected_profit: number
+  confidence: 'medium' | 'low'
+  assumptions: {
+    employees: number; size_basis: 'known' | 'registry' | 'listed' | 'guessed'; size_factor: number
+    country: string | null; market_price_level: number; base_value: number; basis: string
+  }
+}
+export interface ServiceDeal { service_id: number; service: string; tier: string; final_score: number; disqualified: boolean; deal: Deal | null }
+
+/** Per-service scores with the deal estimate of one company (GET /companies/{id}). */
+export const getCompanyDeals = (companyId: string) =>
+  getJson<{ scores: ServiceDeal[]; best_service: string | null }>(`/companies/${companyId}`).then((d) => d.scores)
+
+export interface DealModel {
+  currency: string
+  services: Record<string, { base_value: number; gross_margin: number; basis?: string }>
+  default_service: { base_value: number; gross_margin: number; basis?: string }
+  market_price_level: Record<string, number>
+  default_market_price_level: number
+  win_probability: Record<string, number>
+  sources: string[]
+  [key: string]: unknown
+}
+export const getDealModel = () => getJson<DealModel>('/deal-model')
+/** Admin only; only the keys sent change, `{}` restores the defaults. */
+export const saveDealModel = (changes: Partial<DealModel>) => putJson<DealModel>('/deal-model', changes)
 
 export const sendToHubspot = (leadIds: number[]) => postJson<{ lead_id: number; ok: boolean; error?: string }[]>('/crm/hubspot', leadIds)
 
