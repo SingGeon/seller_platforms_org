@@ -104,11 +104,19 @@ def news_profile(company_id: int) -> dict[str, Any]:
     }
 
 
-def update_status(company_ids: list[int], min_stories: int = MIN_STORIES) -> dict[str, int]:
-    """Store each company's news profile and set it active / insufficient_news. Manual companies are never hidden."""
+def update_status(company_ids: list[int], min_stories: int = MIN_STORIES, only_curated: bool = False) -> dict[str, int]:
+    """Store each company's news profile and set it active / insufficient_news. Manual companies are never hidden.
+    only_curated: leave companies that never went through a curation run alone (the daily refresh must not hide
+    companies before their targeted search has run)."""
     counts = Counter()
-    for c in mongo.db()[mongo.COMPANIES].find({"_id": {"$in": company_ids}}, {"origin": 1, "status": 1}):
+    query: dict = {"_id": {"$in": company_ids}}
+    if only_curated:
+        query["news_profile.curated_at"] = {"$exists": True}
+    for c in mongo.db()[mongo.COMPANIES].find(query, {"origin": 1, "status": 1, "news_profile.curated_at": 1}):
         profile = news_profile(c["_id"])
+        curated_at = (c.get("news_profile") or {}).get("curated_at")
+        if curated_at:
+            profile["curated_at"] = curated_at
         status = ACTIVE if profile["stories"] >= min_stories or c.get("origin") in ("manual", "import") else INSUFFICIENT
         if c.get("status") not in (ACTIVE, INSUFFICIENT):
             status = c.get("status")  # a status set by a person (e.g. archived) wins
@@ -205,6 +213,7 @@ async def replace_companies(client: httpx.AsyncClient, *, target: int, countries
             mongo.store_document(company.id, d)
         tag_documents([company.id])
         update_status([company.id], min_stories)
+        mongo.db()[mongo.COMPANIES].update_one({"_id": company.id}, {"$set": {"news_profile.curated_at": utcnow()}})
         stats["added"] += 1
 
     while active() < target and live and stats["candidates"] < max_candidates:
@@ -261,6 +270,7 @@ async def curate(
             stats["search"] = await search_companies(client, todo, concurrency=concurrency, say=say)
             tag_documents(ids)
         stats["status"] = update_status(ids, min_stories)
+        mongo.db()[mongo.COMPANIES].update_many({"_id": {"$in": ids}}, {"$set": {"news_profile.curated_at": utcnow()}})
         say(f"  status: {stats['status']}")
         if target:
             say(f"4/5 Replacing hidden companies until {target} are active ({', '.join(countries)})")

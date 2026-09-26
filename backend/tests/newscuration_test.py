@@ -92,3 +92,16 @@ def test_hidden_companies_are_replaced_by_real_ones_that_have_enough_news(seeded
     assert mongo.db()[mongo.COMPANIES].count_documents({"name": {"$regex": "^RO Company [13579]"}}) == 0
     # rejected candidates are remembered, so the next run does not search them again
     assert mongo.db()["curation_rejects"].count_documents({}) == stats["replace"]["rejected"] > 0
+
+
+def test_daily_refresh_never_hides_companies_that_were_not_curated_yet(seeded):
+    from app.newscuration import tag_documents, update_status
+
+    weak = add_company("Banca Beta Test", ["Banca Beta Test sponsorizează un concert"])
+    tag_documents([weak])
+    assert update_status([weak], only_curated=True) == {}
+    assert mongo.get(mongo.COMPANIES, weak).status == ACTIVE
+    asyncio.run(curate(seeded, search=False, analyze=False, say=lambda m: None))
+    assert mongo.get(mongo.COMPANIES, weak).status == INSUFFICIENT
+    assert update_status([weak], only_curated=True) == {INSUFFICIENT: 1}  # once curated, the daily refresh keeps it current
+    assert mongo.get(mongo.COMPANIES, weak).news_profile["curated_at"]

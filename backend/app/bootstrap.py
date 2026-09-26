@@ -271,8 +271,8 @@ async def refresh_news(
             await client.aclose()
     from .newscuration import tag_documents, update_status
 
-    tag_documents(ids)  # topics of the new articles, then which companies still have enough topical news
-    stats["status"] = update_status(ids)
+    tag_documents(ids)  # topics of the new articles, then which curated companies still have enough topical news
+    stats["status"] = update_status(ids, only_curated=True)
     if analyze and ids:
         run_id = mongo.create_run(kind="enrichment", params={"stage": "news-refresh-analysis"}).id
         say(f"Signal analysis and scoring for {len(ids)} companies")
