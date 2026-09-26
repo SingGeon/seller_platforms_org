@@ -1,8 +1,9 @@
-import { Activity, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, RefreshCw, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users } from 'lucide-react'
+import { Activity, ChevronDown, CircleHelp, Kanban, LayoutDashboard, LogOut, RadioTower, RefreshCw, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users } from 'lucide-react'
 import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useSession } from '../auth/session'
 import { dataLoadedAt, getCompanies, getSources, loadData, syncAssignments, timeAgo, useDataVersion } from '../data/api'
+import Guide, { openGuide } from './Guide'
 import { Avatar } from './ui'
 
 function Logo() {
@@ -92,6 +93,9 @@ function TopBar() {
           <RefreshCw size={14} className={busy ? 'animate-spin' : ''} aria-hidden />
           {busy ? 'Se actualizează…' : error ? 'Actualizare eșuată · reîncearcă' : `Date actualizate ${timeAgo(dataLoadedAt() ?? '')}`}
         </button>
+        <button type="button" onClick={openGuide} className="p-1 hover:text-orange" aria-label="Ghid rapid" title="Ghid rapid">
+          <CircleHelp size={20} />
+        </button>
         <UserMenu />
       </div>
     </header>
@@ -146,6 +150,17 @@ function UserMenu() {
           <Link role="menuitem" to="/account" onClick={() => setOpen(false)} className="flex items-center gap-3 px-4 py-3 font-bold hover:bg-canvas">
             <UserRound size={17} aria-hidden /> Contul meu
           </Link>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              openGuide()
+            }}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left font-bold hover:bg-canvas"
+          >
+            <CircleHelp size={17} aria-hidden /> Ghid rapid
+          </button>
           <button role="menuitem" type="button" onClick={() => void out()} className="flex w-full items-center gap-3 border-t border-line px-4 py-3 text-left font-bold hover:bg-canvas">
             <LogOut size={17} aria-hidden /> Ieșire din cont
           </button>
@@ -282,6 +297,7 @@ export default function Layout() {
           </div>
         </main>
       </div>
+      <Guide />
     </div>
   )
 }

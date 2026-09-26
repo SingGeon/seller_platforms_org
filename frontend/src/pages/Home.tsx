@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { Link } from 'react-router'
 import { useSession } from '../auth/session'
 import { bestService, getCompanies, getRecentSignals, getServices, getSources, isNew, signalHeadline, timeAgo, useDataVersion } from '../data/api'
+import ImpactPanel from '../components/ImpactPanel'
 import { Panel, PanelTitle, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, btn, serviceColor } from '../components/ui'
 
 function StatTile({ label, value, note, to }: { label: string; value: number | string; note: string; to: string }) {
@@ -63,6 +64,8 @@ export default function Home() {
           to="/runs"
         />
       </div>
+
+      <ImpactPanel companies={companies} />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
         <Panel>
