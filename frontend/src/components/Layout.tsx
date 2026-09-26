@@ -72,15 +72,20 @@ function TopBar() {
       <div className="flex w-60 shrink-0 items-center pl-5">
         <Logo />
       </div>
-      <form onSubmit={submit} className="relative max-w-xl flex-1" role="search">
-        <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Caută companie, domeniu sau industrie…"
-          aria-label="Caută în lead-uri"
-          className="h-10 w-full border-0 pl-10 focus:outline-2 focus:outline-orange"
-        />
+      <form onSubmit={submit} className="flex max-w-xl flex-1" role="search">
+        <div className="relative min-w-0 flex-1">
+          <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Caută companie, domeniu sau industrie…"
+            aria-label="Caută în lead-uri"
+            className="h-10 w-full border-0 pl-10 focus:outline-2 focus:-outline-offset-2 focus:outline-orange"
+          />
+        </div>
+        <button type="submit" className="h-10 shrink-0 bg-orange px-5 font-bold text-ink transition-colors hover:bg-white">
+          Caută
+        </button>
       </form>
       <div className="ml-auto flex items-center gap-5 text-white">
         <button
