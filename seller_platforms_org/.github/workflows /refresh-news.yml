@@ -1,0 +1,45 @@
+# Daily news refresh in the cloud: fetches new articles for every stored company (RO / MD business press,
+# Google News, Bing News), re-runs the signal analysis and re-scores, writing straight to MongoDB Atlas and Neon.
+# Runs on GitHub's servers, so it works while the free Render instance sleeps.
+# Needs two repository secrets (Settings -> Secrets and variables -> Actions): DATABASE_URL (Neon,
+# postgresql+psycopg://...) and MONGO_URI (Atlas, mongodb+srv://...). Atlas Network Access must allow 0.0.0.0/0.
+name: Refresh news
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # every day at 03:00 UTC (06:00 in Chisinau / Bucharest in summer)
+  workflow_dispatch:       # Actions -> Refresh news -> Run workflow, to start it by hand
+
+concurrency:
+  group: refresh-news
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_SCHEMA: LeadRadar
+      MONGO_URI: ${{ secrets.MONGO_URI }}
+      MONGO_DB: leadradar
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional; without it the offline analysis is used
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            pipeline/pyproject.toml
+      - name: Install
+        run: pip install -e pipeline -r backend/requirements.txt
+      - name: Check the secrets are set
+        run: |
+          test -n "$DATABASE_URL" || { echo "::error::Repository secret DATABASE_URL is missing"; exit 1; }
+          test -n "$MONGO_URI" || { echo "::error::Repository secret MONGO_URI is missing"; exit 1; }
+      - name: Refresh news, analyse and re-score
+        working-directory: backend
+        # --fresh-hours 20: a company that got news in yesterday's run is fetched again today (24 would skip it)
+        run: python -m app.bootstrap --refresh-news --fresh-hours 20
