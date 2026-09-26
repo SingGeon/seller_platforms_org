@@ -43,7 +43,7 @@ SOURCES: list[SourceSpec] = [
     SourceSpec("themuse", "The Muse", D, "jobs", "incremental", 360, ["all"], limits="No key (optional key raises the limit).", fallback="Adzuna.", sync=sync_themuse),
     SourceSpec("weworkremotely", "We Work Remotely (RSS)", D, "jobs", "feed", 180, ["all"], limits="RSS, no key.", fallback="Remotive.", sync=sync_wwr),
     # ---------------------------------------------------------------- news / press releases
-    SourceSpec("google_news_topics", "Google News RSS: topic search (when:1h/1d, per country)", D, "news", "feed", 30, ["all"],
+    SourceSpec("google_news_topics", "Google News RSS: topic search (when:1h/1d, per country; blocks bulk use)", D, "news", "feed", 30, ["all"],
                limits="No key; ~100 items per query. hl/gl select the market's language edition.", fallback="Bing News RSS, NewsData.io.", sync=sync_google_news_topics),
     SourceSpec("prnewswire", "PR Newswire RSS", D, "news", "feed", 15, ["all"], limits="RSS, no key, ~20 latest per feed.", fallback="GlobeNewswire.", sync=sync_prnewswire),
     SourceSpec("globenewswire", "GlobeNewswire RSS", D, "news", "feed", 15, ["all"], limits="RSS, no key; organisation name in dc:contributor.", fallback="PR Newswire.", sync=sync_globenewswire),
@@ -66,7 +66,7 @@ SOURCES: list[SourceSpec] = [
     SourceSpec("sec_form_d", "SEC Form D: new funding rounds", D, "corporate", "feed", 60, ["all"], requires=["sec_user_agent"],
                limits="As above; latest 100 filings per poll.", fallback="Press releases (funding).", coverage="US", sync=sync_sec_form_d),
     # ---------------------------------------------------------------- enrichment (per company; run by the orchestrator)
-    SourceSpec("company_news", "Company news: Google News + Bing News (local editions) + GDELT + NewsAPI", E, "news", "incremental", 1440, ["all"],
+    SourceSpec("company_news", "Company news: Bing News for the name and 8 theme keywords (local editions); Google News, GDELT, NewsAPI optional", E, "news", "incremental", 1440, ["all"],
                limits="Google News: 1 request / 2 s, answers 503 for hours if queried faster. Bing News RSS: no key, ~12 latest "
                       "articles, 1 request / 1.5 s. GDELT: 1 request / 5 s. NewsAPI: 100/day, dev-only, 24 h delay, 1 month history.",
                fallback="Google News and Bing News cover each other; GDELT and NewsAPI are supplements."),

@@ -15,7 +15,7 @@ import httpx
 from ..documents import Document, clean_text, dedupe
 from ..schemas import CompanyInfo
 from ..sources.base import polite_request
-from ..newstopics import GDELT_TOPIC_TERMS, topic_queries
+from ..newstopics import GDELT_TOPIC_TERMS, bing_topic_keywords, topic_queries
 from ..sources.companies import mentions_strictly, search_name
 
 # (hl, gl, ceid) per market; kept here to avoid importing the discovery feeds module.
@@ -181,10 +181,20 @@ def _bing_target(link: str) -> str:
     return target or link
 
 
-async def fetch_bing_news(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str] | None = None) -> list[Document]:
+async def fetch_bing_news_topics(client: httpx.AsyncClient, company: CompanyInfo) -> list[Document]:
+    """Bing News once per theme keyword of newstopics.BING_TOPIC_KEYWORDS (digitalisation, automation, AI, cyber
+    attack, restructuring, losses, appointments, hiring), in the company's language."""
+    docs: list[Document] = []
+    for keyword in bing_topic_keywords(company.country):
+        docs += await fetch_bing_news(client, company, extra=keyword, provider="bing_news_topics")
+    return docs
+
+
+async def fetch_bing_news(client: httpx.AsyncClient, company: CompanyInfo, keywords: list[str] | None = None, *,
+                          extra: str = "", provider: str = "bing_news_rss") -> list[Document]:
     """Latest articles naming the company, from Bing News in the company's market (no key, ~12 items)."""
     setlang, cc = BING_MARKETS.get(company.country or "US", BING_MARKETS["US"])
-    query = quote_plus(f'"{search_name(company.name)}"')
+    query = quote_plus(f'"{search_name(company.name)}" {extra}'.strip())
     resp = await polite_request(client, "GET", f"https://www.bing.com/news/search?q={query}&format=rss&setlang={setlang}&cc={cc}", retries=2)
     resp.raise_for_status()
     docs = []
@@ -206,7 +216,7 @@ async def fetch_bing_news(client: httpx.AsyncClient, company: CompanyInfo, keywo
                 text=clean_text(f"{title}. {entry.get('summary', '')}"),
                 published_at=published,
                 source=entry.get("news_source") or "bing-news",
-                meta={"provider": "bing_news_rss"},
+                meta={"provider": provider},
             )
         )
     return docs
@@ -218,12 +228,13 @@ async def collect_news(
     newsapi_key: str | None = None,
     keywords: list[str] | None = None,
     client: httpx.AsyncClient | None = None,
-    providers: tuple[str, ...] = ("gdelt", "google_news", "bing_news", "newsapi"),
+    providers: tuple[str, ...] = ("bing_news", "newsapi"),
 ) -> list[Document]:
     """Collect and deduplicate news for one company from every configured provider.
 
-    A failing provider is logged and skipped so one outage never empties a run. Bulk runs
-    over thousands of companies pass providers=("google_news", "bing_news"): GDELT allows 1 request / 5 s.
+    A failing provider is logged and skipped so one outage never empties a run. Google News ("google_news",
+    "google_topics") and GDELT ("gdelt", "gdelt_topics") are opt-in: Google blocked bulk runs for hours and GDELT
+    allows 1 request / 5 s. Articles already collected from them stay stored and analysed.
     """
     keywords = keywords or DEFAULT_KEYWORDS
     own_client = client is None
@@ -234,6 +245,8 @@ async def collect_news(
             jobs.append(("gdelt", fetch_gdelt(client, company, keywords)))
         if "gdelt_topics" in providers:
             jobs.append(("gdelt_topics", fetch_gdelt(client, company, list(GDELT_TOPIC_TERMS), timespan="3months")))
+        if "bing_topics" in providers:
+            jobs.append(("bing_topics", fetch_bing_news_topics(client, company)))
         if "google_topics" in providers:
             jobs.append(("google_topics", fetch_google_news_topics(client, company)))
         if "google_news" in providers:

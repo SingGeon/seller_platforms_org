@@ -81,7 +81,7 @@ async def collect_documents(company: CompanyInfo, sources: tuple[str, ...], use_
     s = get_settings()
     jobs = {}
     if "news" in sources:
-        jobs["news"] = collect_news(company, newsapi_key=s.newsapi_key or None)
+        jobs["news"] = collect_news(company, newsapi_key=s.newsapi_key or None, providers=("bing_news", "bing_topics", "newsapi"))
     if "web" in sources:
         jobs["web"] = collect_website(company, max_pages=s.crawl_max_pages, delay_seconds=s.crawl_delay_seconds, use_playwright=s.use_playwright)
     if "jobs" in sources:

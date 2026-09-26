@@ -127,7 +127,7 @@ class HostThrottle:
         }
         # Hosts that block for a while once they start answering 429 / 503: every request waits this long instead of
         # burning its retries, then the blocked request is tried once more.
-        self.cooldown: dict[str, float] = {"news.google.com": 900.0}
+        self.cooldown: dict[str, float] = {"news.google.com": 900.0, "www.bing.com": 600.0}
 
     async def wait(self, host: str) -> None:
         interval = self.min_interval.get(host, 0.0)

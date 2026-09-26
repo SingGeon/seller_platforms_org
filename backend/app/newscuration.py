@@ -7,7 +7,8 @@ security incidents, outages, compliance, financial or operational problems) and 
 
 1. Tag every stored article with its topics (sales_pipeline.newstopics) and whether it really names the company.
 2. Companies with fewer than `search_below` distinct recent topical stories get a targeted search: Google News once
-   per theme in the company's language, Bing News, and the business / tech / security press feeds.
+   per theme keyword in the company's language (8 requests), the latest Bing News for the name, and the business /
+   tech / security press feeds.
 3. A company with at least `min_stories` such stories is "active"; one below it becomes "insufficient_news" and is
    hidden from leads and the dashboard (its data stays, a later run can bring it back).
 4. With `target`, new real companies from Wikidata replace the hidden ones: each candidate is searched first and only
@@ -48,8 +49,9 @@ MIN_STORIES = 5  # distinct recent topical stories a company needs to stay in th
 SEARCH_BELOW = 10  # companies with fewer stories than this get a targeted search
 RECENT_YEARS = 3  # older news no longer describes the company's situation
 ACTIVE, INSUFFICIENT = "active", "insufficient_news"
-# GDELT ("gdelt_topics") allows 1 request / 5 s and returned nothing for RO / MD companies in tests, so it is opt-in.
-TOPIC_PROVIDERS = ("google_topics", "bing_news")
+# Google News ("google_topics") blocked the laptop's bulk runs for hours (503) and GDELT ("gdelt_topics") allows
+# 1 request / 5 s with nothing for RO / MD companies, so both are opt-in; the news already collected from them stays.
+TOPIC_PROVIDERS = ("bing_topics", "bing_news")
 REJECTS = "curation_rejects"  # candidates checked and turned down, so later runs skip them
 REJECT_DAYS = 30
 

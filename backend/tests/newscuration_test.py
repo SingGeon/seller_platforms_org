@@ -68,7 +68,7 @@ def news_client() -> httpx.AsyncClient:
                      "website": {"value": f"https://rocompany{i}.example/"}, "sitelinks": {"value": "10"}, "industryLabel": {"value": "banking"}}
                     for i in range(offset, min(offset + limit, 20))]
             return httpx.Response(200, json={"results": {"bindings": rows}})
-        if request.url.host == "news.google.com":
+        if request.url.host in ("news.google.com", "www.bing.com"):
             name = re.search(r'"([^"]+)"', request.url.params["q"]).group(1)
             i = int(name.split()[-1])
             titles = [t.format(n=name) for t in TOPICAL] if i % 2 == 0 else [TOPICAL[2].format(n=name)]

@@ -134,7 +134,7 @@ def companies_needing_news(ids: list[int], fresh_hours: float = NEWS_FRESH_HOURS
     return [i for i in ids if i not in fresh]
 
 
-NEWS_PROVIDERS = ("google_news", "bing_news")
+NEWS_PROVIDERS = ("bing_news",)  # Google News is opt-in ("google_news"): it blocked bulk runs for hours
 
 
 async def fetch_news(
@@ -327,7 +327,7 @@ def main() -> None:
     parser.add_argument("--news-concurrency", type=int, default=2, help="parallel news requests (Google News blocks above ~2)")
     parser.add_argument("--refresh-news", action="store_true", help="skip the registries: fetch news for stored companies, then re-score")
     parser.add_argument("--news-providers", default=",".join(NEWS_PROVIDERS),
-                        help="per-company news providers: google_news,bing_news,google_topics,gdelt_topics (empty = press feeds only)")
+                        help="per-company news providers: bing_news,bing_topics (opt-in: google_news,google_topics,gdelt,gdelt_topics; empty = press feeds only)")
     parser.add_argument("--no-press", action="store_true", help="skip the RO / MD business-press feeds")
     parser.add_argument("--fresh-hours", type=float, default=NEWS_FRESH_HOURS,
                         help="with --refresh-news: skip companies that got news in the last N hours (a daily job needs less than 24)")

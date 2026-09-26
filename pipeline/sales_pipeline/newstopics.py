@@ -6,8 +6,8 @@ restructuring, financial pressure, operational problems, leadership changes and 
 at least one topic is "topical"; a company needs a minimum of distinct recent topical stories before its situation
 can be analysed (backend/app/newscuration.py).
 
-TOPIC_QUERIES holds the same themes as search queries per language, so the news search asks for these stories
-directly instead of only the company name.
+BING_TOPIC_KEYWORDS holds the same themes as search keywords per language, so the news search asks for these stories
+directly instead of only the company name (TOPIC_QUERIES: the Google News variant, opt-in since Google blocked bulk runs).
 """
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def story_key(title: str) -> str:
     return " ".join(re.sub(r"[^a-z0-9 ]+", " ", plain(t)).split()[:8])
 
 
-# Search queries per language: each group covers a few topics, so 3 requests per company and provider.
+# Google News OR-queries per language (opt-in): each group covers a few topics.
 TOPIC_QUERIES: dict[str, tuple[str, ...]] = {
     "ro": (
         '(eficientizare OR "reducerea costurilor" OR restructurare OR digitalizare OR "transformare digitala" OR cloud OR ERP)',
@@ -164,11 +164,23 @@ TOPIC_QUERIES: dict[str, tuple[str, ...]] = {
         '(cyberattack OR "data breach" OR ransomware OR GDPR OR NIS2 OR fine OR outage OR loss OR layoffs)',
     ),
 }
+# Bing News ignores OR, so the themes are asked one keyword per request (about 12 latest articles each).
+BING_TOPIC_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "ro": ("digitalizare", "automatizare", '"inteligenta artificiala"', '"atac cibernetic"', "restructurare", "pierderi",
+           "director", "angajeaza"),
+    "de": ("Digitalisierung", "Automatisierung", "KI", "Cyberangriff", "Umstrukturierung", "Verlust", "Vorstand", "Stellenabbau"),
+    "en": ('"digital transformation"', "automation", "AI", "cyberattack", "restructuring", "loss", "appointed", "layoffs"),
+}
 COUNTRY_LANGUAGE = {"RO": "ro", "MD": "ro", "DE": "de", "AT": "de", "CH": "de"}
 
 
 def topic_queries(country: str | None) -> tuple[str, ...]:
+    """Google News OR-queries (opt-in provider google_topics)."""
     return TOPIC_QUERIES[COUNTRY_LANGUAGE.get(country or "", "en")]
+
+
+def bing_topic_keywords(country: str | None) -> tuple[str, ...]:
+    return BING_TOPIC_KEYWORDS[COUNTRY_LANGUAGE.get(country or "", "en")]
 
 
 # GDELT wants plain OR lists of words / quoted phrases (no accents needed); one mixed-language query per company.

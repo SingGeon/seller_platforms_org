@@ -38,7 +38,7 @@ def test_news_parses_filters_and_dedupes():
         ("api.gdeltproject.org", "/"): httpx.Response(200, json=GDELT),
         ("news.google.com", "/rss"): httpx.Response(200, text=RSS),
     })
-    docs = asyncio.run(collect_news(ACME, client=client))
+    docs = asyncio.run(collect_news(ACME, client=client, providers=("gdelt", "google_news")))  # opt-in providers
     titles = [d.title for d in docs]
     assert "Unrelated story about shipping rates" not in titles  # must mention the company
     assert sum("appoints new CIO" in t for t in titles) == 1  # syndicated duplicate removed
@@ -48,7 +48,20 @@ def test_news_parses_filters_and_dedupes():
 
 def test_news_survives_provider_failure():
     client = mock_client({("news.google.com", "/rss"): httpx.Response(200, text=RSS)})  # GDELT -> 404
-    assert asyncio.run(collect_news(ACME, client=client))
+    assert asyncio.run(collect_news(ACME, client=client, providers=("gdelt", "google_news")))
+
+
+def test_bing_is_the_default_and_asks_each_theme_keyword():
+    seen = []
+
+    def handler(request):
+        seen.append(request.url.params["q"])
+        return httpx.Response(200, text=RSS.replace("news.google.com", "www.bing.com"))
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    docs = asyncio.run(collect_news(CompanyInfo(name="Acme Corp", country="RO"), client=client, providers=("bing_news", "bing_topics")))
+    assert all("google" not in d.url for d in docs)
+    assert '"Acme"' in seen and '"Acme" digitalizare' in seen and len(seen) == 9  # name + 8 themes
 
 
 def test_jobs_from_ats_board_keep_relevant_roles():

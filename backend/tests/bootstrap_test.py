@@ -50,7 +50,7 @@ def registry_client(per_country_available: int, news_hits: bool = True) -> httpx
                 {"id": f"LEI{country}{i:04d}", "attributes": {"lei": f"LEI{country}{i:04d}", "entity": {"legalName": {"name": f"{country} Registered Entity {i} SRL"}}}}
                 for i in range(size)
             ]})
-        if host == "news.google.com":
+        if host in ("news.google.com", "www.bing.com"):
             name = re.search(r'"([^"]+)"', request.url.params["q"]).group(1)
             items = "" if not news_hits else f"""<item><title>{name} launches automation and cost reduction programme - Ziarul</title>
 <link>https://news.example/{name.replace(' ', '-')}</link><pubDate>{NOW}</pubDate>

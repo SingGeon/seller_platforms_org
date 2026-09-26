@@ -145,19 +145,25 @@ The manual research of Annex 1 (read the news, keep the signals that matter, jud
   An article only counts when it really names the company (a one-word name must be written exactly: "Electrica",
   not "energie electrică").
 - A company needs at least 5 distinct topical stories from the last 3 years (the same story from several outlets
-  counts once). Below 10, it gets a targeted search: Google News once per theme in the company's language (4 queries),
-  Bing News, and 40 business / tech / security press feeds (RO, MD, DE, AT). The profile is stored on the company as
+  counts once). Below 10, it gets a targeted search: Bing News once per theme keyword in the company's language (8
+  requests: digitalizare, automatizare, inteligenta artificiala, atac cibernetic, restructurare, pierderi, director,
+  angajeaza, or the German / English equivalents), the latest Bing News for the name, and 40 business / tech /
+  security press feeds (RO, MD, DE, AT). The profile is stored on the company as
   `news_profile` (stories, strong / negative stories, count per topic, last story date).
 - Companies that stay below 5 get `status: insufficient_news` and are hidden from `/leads` and `/dashboard/companies`
   (their data stays; a later run can bring them back). Companies entered by hand are never hidden.
 - `--target N` replaces hidden companies with the next best-known real companies from Wikidata: each candidate is
   searched first and only stored when it already has 5 topical stories; rejected candidates are remembered for 30 days.
-- The daily refresh re-tags the new articles and updates the statuses too. GDELT (`gdelt_topics`) is opt-in: it allows
-  1 request / 5 s and returned nothing for RO / MD companies.
+- The daily refresh re-tags the new articles and updates the statuses of curated companies.
+- Google News is no longer queried by default: after ~1,100 requests it answered 503 for hours (26 Sep 2026). The
+  articles already collected from it stay stored and analysed; `google_news` / `google_topics` remain opt-in providers,
+  as does GDELT (`gdelt_topics`, 1 request / 5 s, nothing for RO / MD). A host that starts blocking (Google, Bing) makes
+  every request to it pause (15 / 10 min) instead of failing the rest of the run.
 
-Measured on 26 Sep 2026: before curation only 32 of 984 companies had 5 topical stories; a targeted search took
-Electrica from 3 to 34 stories (13 about security incidents), Banca Transilvania from 0 to 44 (16 about AI /
-automation) and Metrorex from 5 to 30, in about 20 s per company (Google News throttle, 2 s per request).
+Measured on 26 Sep 2026: before curation only 32 of 984 companies had 5 topical stories; the first targeted search
+(then with Google News) took Electrica from 3 to 34 stories (13 about security incidents), Banca Transilvania from 0
+to 44 (16 about AI / automation) and Metrorex from 5 to 30. With Bing theme keywords, Moldtelecom got 27 distinct
+stories (a cyber attack, a new director, investments) and Dedeman 25 (a digitalisation project).
 
 **Daily refresh in the cloud:** the GitHub Actions workflow `.github/workflows/refresh-news.yml` runs
 `python -m app.bootstrap --refresh-news --fresh-hours 20` every day at 03:00 UTC against the cloud databases (and on
