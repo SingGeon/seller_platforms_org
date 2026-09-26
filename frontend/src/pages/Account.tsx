@@ -11,6 +11,9 @@ import { EMAIL_RE, Field, PasswordInput, StrengthMeter } from '../components/for
 
 type Tab = 'profile' | 'security' | 'leads' | 'activity' | 'accounts'
 
+// Table cells: "26 sept. 2026" stays on one line.
+const fmtShort = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('ro-RO', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 const fmtDate = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleDateString('ro-RO', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'
 
@@ -281,7 +284,7 @@ function AccountsTab() {
       <Panel>
         <PanelTitle action={<Link to="/admin" className="text-[13px] font-bold underline underline-offset-4">Monitorizare echipă</Link>}>Sales manageri ({sellers.length})</PanelTitle>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse">
+          <table className="w-full border-collapse">
             <thead className="border-b-2 border-ink text-left text-[13px]">
               <tr>
                 <th className="px-5 py-3">Nume</th>
@@ -294,22 +297,23 @@ function AccountsTab() {
             <tbody>
               {sellers.map((s) => (
                 <tr key={s.id} className="border-b border-line last:border-0">
-                  <td className="px-5 py-3.5">
+                  <td className="min-w-[220px] px-5 py-3.5">
                     <div className="flex items-center gap-3">
                       <Avatar name={s.full_name} />
                       <div>
                         <p className="font-bold">{s.full_name}</p>
-                        <p className="text-[13px] text-muted">{s.email}</p>
+                        <p className="break-all text-[13px] text-muted">{s.email}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="px-5 py-3.5 text-[14px] text-muted">{fmtDate(s.created_at)}</td>
+                  <td className="whitespace-nowrap px-5 py-3.5 text-[14px] text-muted">{fmtShort(s.created_at)}</td>
                   <td className="px-5 py-3.5 text-[14px] text-muted">{s.last_login_at ? timeAgo(s.last_login_at) : 'niciodată'}</td>
                   <td className="px-5 py-3.5">
                     <span className={`px-2 py-0.5 text-[12px] font-bold ${s.active ? 'bg-ok-bg text-ok' : 'bg-band text-muted'}`}>{s.active ? 'Activ' : 'Dezactivat'}</span>
                   </td>
                   <td className="px-5 py-3.5 text-right">
-                    <div className="flex justify-end gap-2">
+                    {/* The two actions stack when the column is narrow instead of pushing the table out of its frame. */}
+                    <div className="flex flex-wrap justify-end gap-2">
                       <Button size="sm" onClick={() => resetPassword(s)}>Resetează parola</Button>
                       <Button size="sm" variant="ghost" onClick={() => void patch(s, { active: !s.active }, s.active ? `${s.full_name} a fost dezactivat.` : `${s.full_name} a fost reactivat.`)}>
                         {s.active ? 'Dezactivează' : 'Reactivează'}
@@ -358,8 +362,9 @@ export default function Account() {
   return (
     <div className="rise">
       <PageHeader title="Contul meu" subtitle="Profilul, securitatea și lead-urile tale." />
-      <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
-        <aside className="space-y-6">
+      {/* The accounts table needs the width: that tab drops the profile column. */}
+      <div className={`grid gap-6 ${tab === 'accounts' ? '' : 'lg:grid-cols-[320px_1fr]'}`}>
+        <aside className={`space-y-6 ${tab === 'accounts' ? 'hidden' : ''}`}>
           <Panel>
             <div className="p-6">
               <span className="flex size-20 items-center justify-center bg-orange text-[30px] font-bold text-ink" aria-hidden>

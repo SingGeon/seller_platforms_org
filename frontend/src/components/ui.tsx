@@ -26,7 +26,7 @@ const VARIANTS: Record<Variant, string> = {
 }
 
 export const btn = (variant: Variant = 'secondary', size: 'sm' | 'md' = 'md') =>
-  `inline-flex items-center justify-center gap-2 border-2 font-bold transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+  `inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap border-2 font-bold transition-colors disabled:opacity-40 disabled:pointer-events-none ${
     size === 'sm' ? 'h-8 px-3 text-[13px]' : 'h-10 px-5'
   } ${VARIANTS[variant]}`
 
