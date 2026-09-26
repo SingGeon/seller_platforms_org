@@ -390,7 +390,7 @@ export default function Account() {
           </Panel>
         </aside>
         <div className="min-w-0">
-          <div className="mb-6 flex overflow-x-auto border-b-2 border-ink" role="tablist">
+          <div className="mb-6 flex border-b-2 border-ink" role="tablist">
             {tabs.map(([id, label]) => (
               <button
                 key={id}
