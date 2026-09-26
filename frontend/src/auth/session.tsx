@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
-import { loadData, setSeller as setDataSeller } from '../data/api'
+import { clearData, loadData, setSeller as setDataSeller } from '../data/api'
 import {
   AuthError,
   authStatus,
@@ -13,19 +13,23 @@ import {
 } from '../data/client'
 
 /**
- * api  — backend reachable and login required: real seller accounts (PostgreSQL).
- * open — backend reachable, login switched off: a local session only gates the UI.
- * demo — backend unreachable or VITE_USE_MOCK: a local session so the flow can be shown offline.
+ * connecting — waiting for the API; the free Render instance sleeps and needs about a minute to wake up.
+ * up         — the API answers: login and data come from it.
+ * down       — no answer within WAKE_MS; the app says so and offers a retry (there is no offline/demo data).
  */
-export type AuthMode = 'api' | 'open' | 'demo'
+export type ServerState = 'connecting' | 'up' | 'down'
 
-const DEMO_KEY = 'leadradar.demoUser'
+const WAKE_MS = 120_000
+const ATTEMPT_MS = 15_000
+const PAUSE_MS = 3_000
 
 interface Session {
-  loading: boolean
-  mode: AuthMode
+  server: ServerState
   seller: Seller | null
   dataReady: boolean
+  dataError: string | null
+  /** Reconnect to the server, or reload the data after an error. */
+  retry: () => void
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   updateProfile: (full_name: string) => Promise<void>
@@ -40,43 +44,6 @@ export const useSession = () => {
   return s
 }
 
-function readDemo(): Seller | null {
-  try {
-    const raw = localStorage.getItem(DEMO_KEY)
-    return raw ? (JSON.parse(raw) as Seller) : null
-  } catch {
-    return null
-  }
-}
-
-function writeDemo(s: Seller | null) {
-  try {
-    if (s) localStorage.setItem(DEMO_KEY, JSON.stringify(s))
-    else localStorage.removeItem(DEMO_KEY)
-  } catch {
-    // private mode: the demo session lasts until the tab closes
-  }
-}
-
-const nameFromEmail = (email: string) =>
-  email
-    .split('@')[0]
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((p) => p[0].toUpperCase() + p.slice(1))
-    .join(' ') || 'Utilizator'
-
-/** Demo sessions: an email that starts with "admin" logs in as an administrator, anything else as a sales manager. */
-function demoSeller(email: string): Seller {
-  const now = new Date().toISOString()
-  const clean = email.trim().toLowerCase()
-  const admin = clean.startsWith('admin')
-  return {
-    id: admin ? -1 : -2, email: clean, full_name: admin ? 'Admin Orange' : nameFromEmail(email), role: admin ? 'admin' : 'seller',
-    active: true, created_at: now, last_login_at: now,
-  }
-}
-
 export const friendlyError = (err: unknown) => {
   const msg = err instanceof Error ? err.message : String(err)
   if (msg === 'Wrong email or password') return 'Email sau parolă greșită.'
@@ -86,99 +53,115 @@ export const friendlyError = (err: unknown) => {
   if (msg.startsWith('You can only change your own')) return 'Poți modifica doar numele și parola propriului cont.'
   if (msg.includes('already exists')) return 'Există deja un cont cu acest email.'
   if (msg.includes('abort')) return 'Serverul nu a răspuns la timp. Încearcă din nou.'
+  if (msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('Load failed')) return 'Serverul nu poate fi contactat. Verifică conexiunea și încearcă din nou.'
   return msg
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Polls /auth/status until the API answers or WAKE_MS passes. */
+async function waitForServer(): Promise<boolean> {
+  const deadline = Date.now() + WAKE_MS
+  while (Date.now() < deadline) {
+    try {
+      await authStatus(ATTEMPT_MS)
+      return true
+    } catch {
+      await sleep(PAUSE_MS)
+    }
+  }
+  return false
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const [loading, setLoading] = useState(true)
-  const [mode, setMode] = useState<AuthMode>('demo')
+  const [server, setServer] = useState<ServerState>('connecting')
   const [seller, setSellerState] = useState<Seller | null>(null)
   const [dataReady, setDataReady] = useState(false)
+  const [dataError, setDataError] = useState<string | null>(null)
 
-  const enter = useCallback(async (s: Seller, m: AuthMode) => {
-    setDataSeller(m === 'api' ? s : null)
-    setSellerState(s)
+  const reset = useCallback(() => {
+    setDataSeller(null)
+    clearData()
+    setSellerState(null)
     setDataReady(false)
-    await loadData()
-    setDataReady(true)
+    setDataError(null)
   }, [])
 
-  useEffect(() => {
-    setOnAuthLost(() => {
-      setDataSeller(null)
-      setSellerState(null)
-      setDataReady(false)
-    })
-    const start = async () => {
-      let m: AuthMode = 'demo'
-      if (import.meta.env.VITE_USE_MOCK !== 'true') {
-        try {
-          const status = await authStatus()
-          m = status.auth_required ? 'api' : 'open'
-        } catch {
-          m = 'demo'
-        }
-      }
-      setMode(m)
+  const enter = useCallback(async (s: Seller) => {
+    setDataSeller(s)
+    setSellerState(s)
+    setDataReady(false)
+    setDataError(null)
+    try {
+      await loadData()
+      setDataReady(true)
+    } catch (err) {
+      // An expired token is handled by setOnAuthLost (back to the login page).
+      if (!(err instanceof AuthError)) setDataError(friendlyError(err))
+    }
+  }, [])
+
+  const connect = useCallback(async () => {
+    setServer('connecting')
+    if (!(await waitForServer())) {
+      setServer('down')
+      return
+    }
+    // Resolve a saved session before saying "up": otherwise the gate briefly sees no seller and a deep link
+    // (/config, a refresh on /leads/12) is sent to the login page.
+    let saved: Seller | null = null
+    if (getToken()) {
       try {
-        if (m === 'api' && getToken()) await enter(await me(), m)
-        else if (m !== 'api') {
-          const local = readDemo()
-          if (local) await enter(local, m)
-        }
+        saved = await me()
       } catch {
         // expired or revoked token: stay logged out
       }
-      setLoading(false)
     }
-    void start()
+    setServer('up')
+    if (saved) await enter(saved)
   }, [enter])
 
-  const signIn = useCallback(
-    async (email: string, password: string) => {
-      if (mode === 'api') return enter(await apiLogin(email, password), mode)
-      const local = readDemo()
-      const s = local && local.email === email.trim().toLowerCase() ? { ...local, last_login_at: new Date().toISOString() } : demoSeller(email)
-      writeDemo(s)
-      await enter(s, mode)
-    },
-    [mode, enter],
-  )
+  useEffect(() => {
+    setOnAuthLost(reset)
+    void connect()
+  }, [connect, reset])
+
+  const retry = useCallback(() => {
+    if (server !== 'up') void connect()
+    else if (seller) void enter(seller)
+  }, [server, seller, connect, enter])
+
+  const signIn = useCallback(async (email: string, password: string) => enter(await apiLogin(email, password)), [enter])
 
   const signOut = useCallback(async () => {
-    if (mode === 'api') {
-      try {
-        await apiLogout()
-      } catch (err) {
-        if (!(err instanceof AuthError)) console.warn(err)
-      }
-    } else writeDemo(null)
-    setDataSeller(null)
-    setSellerState(null)
-    setDataReady(false)
-  }, [mode])
+    try {
+      await apiLogout()
+    } catch (err) {
+      if (!(err instanceof AuthError)) console.warn(err)
+    }
+    reset()
+  }, [reset])
 
   const updateProfile = useCallback(
     async (full_name: string) => {
       if (!seller) return
-      const next = mode === 'api' ? await updateSeller(seller.id, { full_name }) : { ...seller, full_name }
-      if (mode !== 'api') writeDemo(next)
-      else setDataSeller(next)
+      const next = await updateSeller(seller.id, { full_name })
+      setDataSeller(next)
       setSellerState(next)
     },
-    [mode, seller],
+    [seller],
   )
 
   const changePassword = useCallback(
     async (password: string) => {
-      if (seller && mode === 'api') await updateSeller(seller.id, { password })
+      if (seller) await updateSeller(seller.id, { password })
     },
-    [mode, seller],
+    [seller],
   )
 
   const value = useMemo(
-    () => ({ loading, mode, seller, dataReady, signIn, signOut, updateProfile, changePassword }),
-    [loading, mode, seller, dataReady, signIn, signOut, updateProfile, changePassword],
+    () => ({ server, seller, dataReady, dataError, retry, signIn, signOut, updateProfile, changePassword }),
+    [server, seller, dataReady, dataError, retry, signIn, signOut, updateProfile, changePassword],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

@@ -70,7 +70,8 @@ export interface SourceStatus {
   category: string
   tier: RefreshTier
   lastRun: string
-  status: 'ok' | 'warn' | 'error'
+  /** idle: never ran yet (neutral, not a problem); warn: missing API keys or partial failure. */
+  status: 'ok' | 'warn' | 'error' | 'idle'
   newItems: number
   note?: string
 }

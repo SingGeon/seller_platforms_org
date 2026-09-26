@@ -1,11 +1,17 @@
-import { Info } from 'lucide-react'
+import { Gauge, Newspaper, Send } from 'lucide-react'
 import { type FormEvent, useId, useState } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
 import { LogoMark, LoopVideo, Wordmark } from '../components/Brand'
 import { EMAIL_RE, Field, PasswordInput } from '../components/forms'
-import SignalFeed from '../components/SignalFeed'
 import { btn } from '../components/ui'
+
+// What the platform does, without showing any company data before login.
+const FEATURES = [
+  { icon: Newspaper, title: 'Semnale din surse publice', text: 'Știri, presa de business și registre, citite zilnic pentru fiecare companie.' },
+  { icon: Gauge, title: 'Scor 0–100 pe fiecare serviciu', text: 'Fiecare punct are o dovadă: articolul și fraza din care vine.' },
+  { icon: Send, title: 'Mesaj de contact gata de trimis', text: 'Generat din semnalele companiei, în română, engleză sau germană.' },
+]
 
 /** The home page for visitors. Accounts are created by an admin, so there is no sign-up here. */
 export default function Login() {
@@ -22,7 +28,6 @@ export default function Login() {
   const [busy, setBusy] = useState(false)
   const [forgot, setForgot] = useState(false)
 
-  if (session.loading) return <div className="flex h-full items-center justify-center bg-ink text-white/60">Se încarcă…</div>
   if (session.seller) return <Navigate to={from} replace />
 
   const submit = async (ev: FormEvent) => {
@@ -56,9 +61,19 @@ export default function Login() {
               Fiecare companie lasă <span className="text-orange">semnale.</span>
             </h2>
             <p className="mt-4 text-[18px] text-white/70">LeadRadar le aude primul și îți spune pe cine să suni azi.</p>
-            <div className="mt-10">
-              <SignalFeed />
-            </div>
+            <ul className="mt-10 space-y-2">
+              {FEATURES.map(({ icon: Icon, title, text }) => (
+                <li key={title} className="flex items-start gap-4 border border-white/10 bg-[rgba(10,10,11,0.55)] p-4 backdrop-blur-sm">
+                  <span className="flex size-10 shrink-0 items-center justify-center bg-white/10 text-orange">
+                    <Icon size={18} aria-hidden />
+                  </span>
+                  <span>
+                    <span className="block text-[15px] font-bold">{title}</span>
+                    <span className="block text-[14px] text-white/70">{text}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
           <p className="text-[12px] text-white/45">© 2026 Orange Systems · Gigahack</p>
         </div>
@@ -72,16 +87,6 @@ export default function Login() {
           <form onSubmit={submit} noValidate className="rise w-full max-w-[420px]">
             <h1 className="text-[34px] leading-tight tracking-[-0.02em]">Bine ai revenit</h1>
             <p className="mt-2 text-muted">Intră în cont ca să vezi lead-urile de azi.</p>
-
-            {session.mode !== 'api' && (
-              <p className="mt-5 flex gap-2 bg-band px-3 py-2.5 text-[13px]">
-                <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
-                <span>
-                  {session.mode === 'demo' ? 'Mod demo: serverul nu e disponibil' : 'Serverul rulează fără autentificare'}, așa că sesiunea
-                  rămâne doar în acest browser și parola nu este salvată. Un email care începe cu <b>admin</b> intră ca administrator.
-                </span>
-              </p>
-            )}
 
             <div className="mt-7 space-y-5">
               <Field label="Email" id={`${uid}-email`} error={errors.email}>

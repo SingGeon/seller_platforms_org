@@ -14,31 +14,32 @@ Requires Node 22.22+.
 
 | Route | Page | Jira |
 |---|---|---|
-| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background and a live signal feed. There is no sign-up: sales-manager accounts are created by an admin, admin accounts directly in the database (`python -m app.admin create`). Any app URL opened while logged out comes back here and returns to that URL after login | — |
+| `/` (logged out) | Login — the home page for visitors, with a Higgsfield-generated looping background and what the platform does (no company data before login). There is no sign-up: sales-manager accounts are created by an admin, admin accounts directly in the database (`python -m app.admin create`). Any app URL opened while logged out comes back here and returns to that URL after login | — |
 | `/account` | Personal account — profile, password, my leads, my activity; for admins also **Sales-manager accounts** (create, deactivate, reset password; role is always `seller`) | — |
 | `/admin` | Admin only (`role = admin`): team monitoring — KPIs, activity per day, per-seller table (last login, actions, leads, in progress, won, last action) and the filterable activity log | — |
 | `/` (logged in) | Home — KPIs, fresh signals, top leads to contact | — |
-| `/leads` | Lead list — filters (service, country, stage, new), sort, CSV export | GIG-34 |
+| `/leads` | Lead list — filters (service, industry sector, country, stage, new), sort, pagination, CSV export | GIG-34 |
 | `/leads/:id` | Company record — score breakdown, "why now", evidence with sources, timeline, notes | GIG-35 |
 | `/pipeline` | Kanban by stage, drag & drop | — |
-| `/config` | Signal questions + weights, negative rules, ICP, scoring | GIG-36 |
-| `/runs` | Data sources, refresh tiers, run status | GIG-37 |
+| `/config` | Signal questions + weights, negative rules, ICP, scoring (admins edit, sales managers read) | GIG-36 |
+| `/runs` | Data sources, refresh tiers, run status (admins start runs) | GIG-37 |
 
 ## Data
 
 At startup `src/data/api.ts` loads everything from the FastAPI backend (`VITE_API_URL`, default
 `http://localhost:8000`) through `src/data/backend.ts`, which maps the API responses onto the shapes in
-`src/data/types.ts`. If the API is unreachable, or `VITE_USE_MOCK=true`, the app falls back to the fictional demo
-data in `src/data/mock.ts` and shows the "Date demo" badge in the header. "Rulează acum" on `/runs` starts a real
-discovery run (`POST /discovery/runs`) and reloads the data when it ends.
+`src/data/types.ts`. There is no demo data: the app only ever shows what the server returns. The data reloads in the
+background every 5 minutes while the tab is visible (and on demand from the header), so results of the daily cloud
+run appear without a page refresh. "Rulează acum" on `/runs` (admins) starts a discovery run (`POST /discovery/runs`)
+and reloads the data when it ends.
 
 ## Sessions
 
-`src/auth/session.tsx` holds the session for every page. With the API up and `auth_required`, it uses the seller
-accounts (`/auth/login`, `/auth/me`, `POST /sellers`, `PUT /sellers/{id}`, `GET /activity`). With the API down,
-`VITE_USE_MOCK=true` or auth switched off, login keeps a local demo session in the browser (no password is stored):
-an email starting with `admin` enters as administrator, anything else as a sales manager, and the admin pages use a
-fictional demo team (`src/data/team.ts`). The login background loop lives in `public/media/`.
+`src/auth/session.tsx` holds the session for every page and always uses the seller accounts on the server
+(`/auth/login`, `/auth/me`, `POST /sellers`, `PUT /sellers/{id}`, `GET /activity`). At startup it waits up to two
+minutes for `/auth/status`, because the free Render instance needs about a minute to wake up; if the server still does
+not answer, the app says so and offers a retry instead of showing anything invented. The same goes for a failed data
+load after login. The login background loop lives in `public/media/`. The app is built for desktop screens.
 
 ## Design tokens
 

@@ -1,8 +1,8 @@
 import { ChevronRight, Copy, ExternalLink, Globe, Hand, Send, Sparkles, UserSearch } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { useSession } from '../auth/session'
-import { STAGES, getCompany, getQuestions, getSeller, getServices, isLive, isNew, patchCompany, timeAgo } from '../data/api'
+import { friendlyError, useSession } from '../auth/session'
+import { STAGES, getCompany, getQuestions, getServices, isNew, patchCompany, signalHeadline, timeAgo, useDataVersion } from '../data/api'
 import { describe } from '../data/team'
 import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
 import { listSellers, type Seller } from '../data/client'
@@ -29,6 +29,9 @@ const fmtDate = (iso: string) =>
 function SignalCard({ s }: { s: Signal }) {
   const question = getQuestions().find((q) => q.id === s.questionId)
   const negative = s.points < 0
+  const headline = signalHeadline(s)
+  // When the headline already is the whole quote, do not repeat it below.
+  const showQuote = !!s.quote.trim() && s.quote.trim() !== headline
   return (
     <article className={`border-l-4 bg-white p-5 ${negative ? 'border-danger' : 'border-orange'}`}>
       <div className="flex items-start justify-between gap-4">
@@ -41,7 +44,7 @@ function SignalCard({ s }: { s: Signal }) {
             )}
             <span className="text-[12px] text-muted">{sourceTypeLabel(s.sourceType)}</span>
           </div>
-          <h3 className="text-[16px] leading-snug">{s.title}</h3>
+          <h3 className="text-[16px] leading-snug">{headline}</h3>
         </div>
         <span
           className={`num shrink-0 px-2 py-1 text-[14px] font-bold ${negative ? 'bg-danger-bg text-danger' : 'bg-orange-wash text-ink'}`}
@@ -56,7 +59,7 @@ function SignalCard({ s }: { s: Signal }) {
           <span className="font-bold text-ink-2">Răspunde la:</span> {question.text}
         </p>
       )}
-      <blockquote className="mt-3 bg-canvas px-4 py-3 text-[14px] leading-relaxed text-ink-2">„{s.quote}”</blockquote>
+      {showQuote && <blockquote className="mt-3 bg-canvas px-4 py-3 text-[14px] leading-relaxed text-ink-2">„{s.quote}”</blockquote>}
       <footer className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-muted">
         <span className="inline-flex items-center gap-1.5 font-bold text-ink-2">
           <SourceIcon type={s.sourceType} size={14} /> {s.source}
@@ -74,7 +77,7 @@ function SignalCard({ s }: { s: Signal }) {
 
 function Timeline({ c, activity }: { c: CompanyT; activity: Activity[] }) {
   const events = [
-    ...c.signals.map((s) => ({ date: s.date, title: s.title, meta: s.source, negative: s.points < 0 })),
+    ...c.signals.map((s) => ({ date: s.date, title: signalHeadline(s), meta: s.source, negative: s.points < 0 })),
     ...activity.map((a) => ({ date: a.t, title: describe(a.action, a.details ?? {}).label, meta: a.seller ?? 'Sistem', negative: false })),
     { date: c.firstSeen, title: 'Companie descoperită automat', meta: 'LeadRadar', negative: false },
   ].sort((a, b) => b.date.localeCompare(a.date))
@@ -97,11 +100,6 @@ function Notes({ companyId, notes, onChange }: { companyId: string; notes: Note[
   const [error, setError] = useState<string | null>(null)
   const add = () => {
     if (!draft.trim()) return
-    if (!isLive()) {
-      onChange([...notes, { t: new Date().toISOString(), seller_id: 0, author: 'Demo', text: draft.trim() }])
-      setDraft('')
-      return
-    }
     addNote(companyId, draft.trim())
       .then((a) => {
         onChange(a.notes)
@@ -150,7 +148,7 @@ function Message({ c }: { c: CompanyT }) {
   const [draft, setDraft] = useState<Outreach | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const canGenerate = isLive() && c.bestServiceApiId != null
+  const canGenerate = c.bestServiceApiId != null
 
   const generate = () => {
     if (c.bestServiceApiId == null) return
@@ -214,6 +212,7 @@ type Tab = 'signals' | 'timeline' | 'notes' | 'message'
 
 export default function Company() {
   const { id = '' } = useParams()
+  useDataVersion()
   const c = getCompany(id)
   const [stage, setStage] = useState<Stage | undefined>(c?.stage)
   const [sellerId, setSellerId] = useState<number | null>(c?.sellerId ?? null)
@@ -226,23 +225,21 @@ export default function Company() {
   const [notes, setNotes] = useState<Note[]>([])
   const [activity, setActivity] = useState<Activity[]>([])
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
-  const live = isLive() && getSeller() != null
 
   const cid = c?.id
   useEffect(() => {
-    if (!live || !cid) return
+    if (!cid) return
     if (isAdmin) listSellers().then(setSellers).catch(() => setSellers([]))
     getAssignment(cid).then((a) => setNotes(a.notes)).catch(() => setNotes([]))
     getActivity(cid).then(setActivity).catch(() => setActivity([]))
-  }, [live, cid, isAdmin])
+  }, [cid, isAdmin])
 
-  const fail = (err: unknown) => setStatus({ ok: false, text: err instanceof Error ? err.message : String(err) })
+  const fail = (err: unknown) => setStatus({ ok: false, text: friendlyError(err) })
 
   const changeStage = (next: Stage) => {
     if (!c) return
     const prev = stage
     setStage(next)
-    if (!live) return
     saveAssignment(c.id, { stage: next })
       .then(() => {
         patchCompany(c.id, { stage: next })
@@ -262,11 +259,6 @@ export default function Company() {
     setSellerId(next)
     setOwner(name)
     const self = next != null && next === me?.id
-    if (!live) {
-      patchCompany(c.id, { sellerId: next, owner: name })
-      setStatus({ ok: true, text: self ? 'Lead-ul este acum al tău.' : name ? `Asignat lui ${name}.` : 'Lead neasignat.' })
-      return
-    }
     saveAssignment(c.id, next == null ? { unassign: true } : { seller_id: next })
       .then((a) => {
         patchCompany(c.id, { sellerId: a.seller_id, owner: a.owner })
@@ -279,11 +271,10 @@ export default function Company() {
         fail(err)
       })
   }
-  // Demo mode has no seller ids for the mock owners, so "mine" falls back to the name.
-  const mine = me != null && (sellerId != null ? sellerId === me.id : owner === me.full_name)
+  const mine = me != null && sellerId === me.id
 
   const hubspot = () => {
-    if (!c || !live || c.leadIds.length === 0) return
+    if (!c || c.leadIds.length === 0) return
     sendToHubspot(c.leadIds)
       .then((res) => {
         const ok = res.filter((r) => r.ok).length
@@ -361,7 +352,7 @@ export default function Company() {
             >
               <UserSearch size={16} aria-hidden /> LinkedIn
             </a>
-            <Button onClick={hubspot} disabled={!live || c.leadIds.length === 0} title={live ? 'Creează / actualizează compania în HubSpot, cu o notă' : 'Necesită date din backend'}>
+            <Button onClick={hubspot} disabled={c.leadIds.length === 0} title="Creează / actualizează compania în HubSpot, cu o notă">
               Trimite în HubSpot
             </Button>
             <Button variant="primary" onClick={() => setTab('message')}>
@@ -423,7 +414,7 @@ export default function Company() {
               <dt className="text-muted">Responsabil</dt>
               <dd className="flex min-w-0 items-center gap-2 font-bold">
                 <Avatar name={owner} size={22} />
-                {isAdmin && live ? (
+                {isAdmin ? (
                   <select value={sellerId ?? ''} onChange={(e) => changeOwner(e.target.value)} className="h-8 w-full min-w-0 flex-1 truncate text-[13px]" aria-label="Responsabil">
                     <option value="">Neasignat</option>
                     {sellers.filter((s) => s.active && s.role !== 'admin').map((s) => (
@@ -466,8 +457,18 @@ export default function Company() {
             <h2 className="flex items-center gap-2 text-[13px] uppercase tracking-wider text-orange">
               <Sparkles size={16} aria-hidden /> De ce acest lead, acum?
             </h2>
-            <p className="mt-3 text-[17px] leading-relaxed">{c.whyNow}</p>
-            <p className="mt-3 text-[12px] text-faint">Rezumat generat de AI din {c.signals.length} semnale cu surse verificabile.</p>
+            {c.whyNow ? (
+              <>
+                <p className="mt-3 text-[17px] leading-relaxed">{c.whyNow}</p>
+                <p className="mt-3 text-[12px] text-faint">Rezumat generat de AI din {c.signals.length} semnale cu surse verificabile.</p>
+              </>
+            ) : (
+              <p className="mt-3 text-[15px] leading-relaxed text-white/75">
+                {c.signals.length
+                  ? 'Rezumatul se generează la următoarea analiză. Până atunci, vezi semnalele de mai jos.'
+                  : 'Încă nu avem semnale pentru această companie. Scorul vine doar din potrivirea cu profilul de client ideal (industrie, țară, mărime).'}
+              </p>
+            )}
           </section>
 
           <div>
@@ -490,6 +491,11 @@ export default function Company() {
             <div className="pt-5" role="tabpanel">
               {tab === 'signals' && (
                 <div className="space-y-4">
+                  {c.signals.length === 0 && (
+                    <p className="border border-line bg-white px-5 py-8 text-center text-muted">
+                      Niciun semnal găsit încă. Apar automat când sursele publică ceva relevant despre companie.
+                    </p>
+                  )}
                   {[...c.signals]
                     .sort((a, b) => Math.abs(b.points) - Math.abs(a.points))
                     .map((s) => (

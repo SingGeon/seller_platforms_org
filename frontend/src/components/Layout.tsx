@@ -1,8 +1,8 @@
-import { Activity, Bell, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users } from 'lucide-react'
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { Activity, ChevronDown, Kanban, LayoutDashboard, LogOut, RadioTower, RefreshCw, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users } from 'lucide-react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router'
 import { useSession } from '../auth/session'
-import { dataError, getCompanies, getSources, isLive, isNew, timeAgo } from '../data/api'
+import { dataLoadedAt, getCompanies, getSources, loadData, timeAgo, useDataVersion } from '../data/api'
 import { Avatar } from './ui'
 
 function Logo() {
@@ -21,11 +21,45 @@ function Logo() {
   )
 }
 
+// Data is reloaded in the background so new leads from the daily run show up without a page refresh.
+const REFRESH_MS = 5 * 60_000
+
+function useAutoRefresh() {
+  const [state, setState] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null })
+  const busy = useRef(false)
+  const refresh = useCallback(async () => {
+    if (busy.current) return
+    busy.current = true
+    setState({ busy: true, error: null })
+    try {
+      await loadData()
+      setState({ busy: false, error: null })
+    } catch (err) {
+      // Keep the data already on screen; the header shows that the update failed.
+      setState({ busy: false, error: err instanceof Error ? err.message : String(err) })
+    } finally {
+      busy.current = false
+    }
+  }, [])
+  useEffect(() => {
+    const stale = () => Date.now() - new Date(dataLoadedAt() ?? 0).getTime() > REFRESH_MS
+    const tick = () => {
+      if (document.visibilityState === 'visible' && stale()) void refresh()
+    }
+    const timer = setInterval(tick, 60_000)
+    document.addEventListener('visibilitychange', tick)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', tick)
+    }
+  }, [refresh])
+  return { ...state, refresh }
+}
+
 function TopBar() {
   const navigate = useNavigate()
   const [q, setQ] = useState('')
-  const lastSync = getSources().reduce((a, s) => (s.lastRun > a ? s.lastRun : a), '')
-  const newCount = getCompanies().filter(isNew).length
+  const { busy, error, refresh } = useAutoRefresh()
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -48,25 +82,15 @@ function TopBar() {
         />
       </form>
       <div className="ml-auto flex items-center gap-5 text-white">
-        <span className="hidden items-center gap-2 text-[12px] text-faint lg:flex" title="Ultima sincronizare a surselor">
-          <span className="blip size-2 bg-orange" aria-hidden />
-          Sincronizat {timeAgo(lastSync)}
-        </span>
-        {!isLive() && (
-          <span
-            className="hidden border border-faint px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-faint md:inline"
-            title={dataError() ? `API indisponibil: ${dataError()}` : 'Date demo (VITE_USE_MOCK)'}
-          >
-            Date demo
-          </span>
-        )}
-        <button type="button" className="relative p-1 hover:text-orange" aria-label={`Notificări: ${newCount} lead-uri noi`}>
-          <Bell size={20} />
-          {newCount > 0 && (
-            <span className="num absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center bg-orange px-1 text-[10px] font-bold text-ink">
-              {newCount}
-            </span>
-          )}
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={busy}
+          className={`flex items-center gap-2 text-[12px] hover:text-white ${error ? 'text-orange' : 'text-faint'}`}
+          title={error ? `Actualizarea a eșuat: ${error}. Click pentru a reîncerca.` : 'Datele se actualizează automat la 5 minute. Click pentru acum.'}
+        >
+          <RefreshCw size={14} className={busy ? 'animate-spin' : ''} aria-hidden />
+          {busy ? 'Se actualizează…' : error ? 'Actualizare eșuată · reîncearcă' : `Date actualizate ${timeAgo(dataLoadedAt() ?? '')}`}
         </button>
         <UserMenu />
       </div>
@@ -167,6 +191,7 @@ function NavItem({ to, label, icon: Icon, end, badge, active }: { to: string; la
 
 function Sidebar() {
   const { seller } = useSession()
+  useDataVersion()
   const { pathname, search } = useLocation()
   const accountsTab = pathname === '/account' && new URLSearchParams(search).get('tab') === 'accounts'
   const sources = getSources()
@@ -202,7 +227,7 @@ function Sidebar() {
           {sources.map((s) => (
             <span
               key={s.id}
-              className={`h-2 flex-1 ${s.status === 'ok' ? 'bg-ink' : s.status === 'warn' ? 'bg-warn' : 'bg-danger'}`}
+              className={`h-2 flex-1 ${s.status === 'ok' ? 'bg-ink' : s.status === 'warn' ? 'bg-warn' : s.status === 'error' ? 'bg-danger' : 'bg-line'}`}
             />
           ))}
         </div>
@@ -212,6 +237,13 @@ function Sidebar() {
 }
 
 export default function Layout() {
+  useDataVersion()
+  // Re-render once a minute so "acum X min" labels stay true.
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 60_000)
+    return () => clearInterval(t)
+  }, [])
   return (
     <div className="flex h-full flex-col">
       <TopBar />

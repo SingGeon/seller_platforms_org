@@ -1,10 +1,10 @@
 import { ArrowRight } from 'lucide-react'
+import { useState } from 'react'
 import { Link } from 'react-router'
 import { useSession } from '../auth/session'
-import { getCompanies, getRecentSignals, getServices, getSources, isNew, timeAgo } from '../data/api'
+import { bestService, getCompanies, getRecentSignals, getServices, getSources, isNew, signalHeadline, timeAgo, useDataVersion } from '../data/api'
 import type { ServiceId } from '../data/types'
 import { Panel, PanelTitle, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, btn, serviceColor } from '../components/ui'
-import { bestService } from './Leads'
 
 function StatTile({ label, value, note, to }: { label: string; value: number | string; note: string; to: string }) {
   return (
@@ -23,17 +23,19 @@ function StatTile({ label, value, note, to }: { label: string; value: number | s
 
 export default function Home() {
   const { seller } = useSession()
+  useDataVersion()
+  const [now] = useState(() => Date.now())
   const firstName = seller?.full_name.split(' ')[0]
   const companies = getCompanies()
   const active = companies.filter((c) => c.stage !== 'descalificat')
   const hot = active.filter((c) => c.score >= 75)
   const fresh = companies.filter(isNew)
-  const signals24 = companies.flatMap((c) => c.signals).filter((s) => Date.now() - new Date(s.date).getTime() < 24 * 3600_000)
+  const signals24 = companies.flatMap((c) => c.signals).filter((s) => now - new Date(s.date).getTime() < 24 * 3600_000)
   const sources = getSources()
   const recent = getRecentSignals(7)
   const top = [...active].sort((a, b) => b.score - a.score).slice(0, 5)
   const perService = getServices().map((s) => ({ ...s, count: active.filter((c) => bestService(c) === s.id).length }))
-  const maxCount = Math.max(...perService.map((s) => s.count))
+  const maxCount = Math.max(1, ...perService.map((s) => s.count))
   const today = new Date().toLocaleDateString('ro-RO', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
@@ -74,6 +76,11 @@ export default function Home() {
           >
             Semnale proaspete
           </PanelTitle>
+          {recent.length === 0 && (
+            <p className="px-5 py-10 text-center text-muted">
+              Niciun semnal nou încă. Semnalele apar după următoarea rulare de știri, de obicei o dată pe zi.
+            </p>
+          )}
           <ul>
             {recent.map((s) => (
               <li key={s.id} className="border-b border-line last:border-0">
@@ -82,7 +89,7 @@ export default function Home() {
                     <SourceIcon type={s.sourceType} size={17} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="font-bold leading-snug">{s.title}</p>
+                    <p className="font-bold leading-snug">{signalHeadline(s)}</p>
                     <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-muted">
                       <span className="font-bold text-ink">{s.company.name}</span>
                       {s.service && <ServiceTag id={s.service as ServiceId} className="!text-[12px] !font-normal" />}

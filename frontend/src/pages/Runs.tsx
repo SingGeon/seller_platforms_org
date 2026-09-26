@@ -1,6 +1,7 @@
-import { CircleCheck, CircleX, RefreshCw, TriangleAlert } from 'lucide-react'
+import { CircleCheck, CircleDashed, CircleX, RefreshCw, TriangleAlert } from 'lucide-react'
 import { useState } from 'react'
-import { getSources, isLive, runNowAndReload, timeAgo } from '../data/api'
+import { friendlyError, useSession } from '../auth/session'
+import { getSources, runNowAndReload, timeAgo, useDataVersion } from '../data/api'
 import type { RefreshTier, SourceStatus } from '../data/types'
 import { Button, PageHeader } from '../components/ui'
 
@@ -16,10 +17,14 @@ const STATUS: Record<SourceStatus['status'], [typeof CircleCheck, string, string
   ok: [CircleCheck, 'Funcționează', 'text-ok'],
   warn: [TriangleAlert, 'Atenție', 'text-ink'],
   error: [CircleX, 'Eroare', 'text-danger'],
+  idle: [CircleDashed, 'Nerulată', 'text-muted'],
 }
 
 export default function Runs() {
-  const [sources, setSources] = useState(getSources)
+  // Runs change what every seller sees, so only an admin starts them.
+  const isAdmin = useSession().seller?.role === 'admin'
+  useDataVersion()
+  const sources = getSources()
   const [running, setRunning] = useState(false)
 
   const [runError, setRunError] = useState<string | null>(null)
@@ -27,22 +32,12 @@ export default function Runs() {
   const runNow = async () => {
     setRunning(true)
     setRunError(null)
-    if (!isLive()) {
-      // Demo data: simulate a run so the page still demonstrates the flow.
-      setTimeout(() => {
-        const now = new Date().toISOString()
-        setSources((list) => list.map((s) => (s.status === 'error' ? s : { ...s, lastRun: now })))
-        setRunning(false)
-      }, 2200)
-      return
-    }
     try {
       const status = await runNowAndReload()
       if (status !== 'succeeded') setRunError(`Rularea s-a încheiat cu starea „${status}” — vezi erorile per sursă.`)
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : String(err))
+      setRunError(friendlyError(err))
     } finally {
-      setSources(getSources())
       setRunning(false)
     }
   }
@@ -60,10 +55,14 @@ export default function Runs() {
           </>
         }
         actions={
-          <Button variant="primary" onClick={runNow} disabled={running}>
-            <RefreshCw size={16} className={running ? 'animate-spin' : ''} aria-hidden />
-            {running ? 'Se rulează…' : 'Rulează acum'}
-          </Button>
+          isAdmin ? (
+            <Button variant="primary" onClick={runNow} disabled={running}>
+              <RefreshCw size={16} className={running ? 'animate-spin' : ''} aria-hidden />
+              {running ? 'Se rulează…' : 'Rulează acum'}
+            </Button>
+          ) : (
+            <p className="text-[13px] text-muted">Rulările le pornește administratorul.</p>
+          )
         }
       />
 

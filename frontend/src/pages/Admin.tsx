@@ -1,11 +1,9 @@
 import { ArrowRight, TriangleAlert, UserPlus } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
-import { useSession } from '../auth/session'
-import { getCompanies, timeAgo } from '../data/api'
+import { getCompanies, timeAgo, useDataVersion } from '../data/api'
 import type { Seller } from '../data/client'
 import { CATEGORIES, type ActivityCategory, loadActivity, loadTeam, type TeamEvent } from '../data/team'
-import type { Company } from '../data/types'
 import { Avatar, PageHeader, Panel, PanelTitle, btn } from '../components/ui'
 
 const PERIODS = [
@@ -36,9 +34,9 @@ function Tile({ label, value, note, warn }: { label: string; value: string | num
   )
 }
 
-function DailyChart({ events }: { events: TeamEvent[] }) {
+function DailyChart({ events, now }: { events: TeamEvent[]; now: number }) {
   const days = Array.from({ length: 14 }, (_, i) => {
-    const d = new Date(Date.now() - (13 - i) * 86400000)
+    const d = new Date(now - (13 - i) * 86400000)
     const key = dayKey(d.toISOString())
     return { key, date: d, n: events.filter((e) => dayKey(e.t) === key && e.category !== 'acces').length }
   })
@@ -65,16 +63,17 @@ function DailyChart({ events }: { events: TeamEvent[] }) {
             </span>
           ))}
         </div>
-        <p className="mt-3 text-[12px] text-muted">Acțiuni pe lead-uri, configurare, rulări și conturi (fără autentificări). Treci cu mouse-ul peste o bară pentru valoare.</p>
+        <p className="mt-3 text-[12px] text-muted">Acțiunile sales managerilor pe lead-uri și conturi (fără autentificări și fără acțiunile administratorilor). Treci cu mouse-ul peste o bară pentru valoare.</p>
       </div>
     </Panel>
   )
 }
 
-const ownedBy = (c: Company, s: Seller, byId: boolean) => (byId ? c.sellerId === s.id : c.owner === s.full_name)
 
 export default function Admin() {
-  const { mode } = useSession()
+  useDataVersion()
+  // Fixed when the page opens: periods and the chart count back from this moment.
+  const [now] = useState(() => Date.now())
   const [team, setTeam] = useState<Seller[] | null>(null)
   const [events, setEvents] = useState<TeamEvent[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -85,35 +84,38 @@ export default function Admin() {
   const feedRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    Promise.all([loadTeam(mode), loadActivity(mode)])
+    Promise.all([loadTeam(), loadActivity()])
       .then(([t, e]) => {
         setTeam(t)
         setEvents(e)
       })
       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
-  }, [mode])
+  }, [])
 
   const hours = PERIODS.find((p) => p.id === period)!.hours
-  const since = Date.now() - hours * 3600_000
+  const since = now - hours * 3600_000
   const inPeriod = useMemo(() => events.filter((e) => new Date(e.t).getTime() >= since), [events, since])
   const companies = getCompanies()
   const companyName = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies])
-  const byId = mode === 'api'
 
   if (error) return <p className="bg-danger-bg px-4 py-3 font-bold text-danger">Nu am putut încărca activitatea: {error}</p>
   if (!team) return <p className="text-muted">Se încarcă activitatea echipei…</p>
 
   const sellers = team.filter((s) => s.role !== 'admin')
   const activeSellers = sellers.filter((s) => s.active)
-  const workedIds = new Set(inPeriod.filter((e) => e.category !== 'acces').map((e) => e.sellerId))
+  // Team figures count only sales managers; the journal below still shows everyone, admins included.
+  const sellerIds = new Set(sellers.map((s) => s.id))
+  const teamEvents = events.filter((e) => e.sellerId != null && sellerIds.has(e.sellerId))
+  const teamInPeriod = inPeriod.filter((e) => e.sellerId != null && sellerIds.has(e.sellerId))
+  const workedIds = new Set(teamInPeriod.filter((e) => e.category !== 'acces').map((e) => e.sellerId))
   const idle = activeSellers.filter((s) => !workedIds.has(s.id))
-  const leadActions = inPeriod.filter((e) => e.category === 'leaduri').length
-  const won = companies.filter((c) => c.stage === 'castigat' && c.owner).length
+  const leadActions = teamInPeriod.filter((e) => e.category === 'leaduri').length
+  const won = companies.filter((c) => c.stage === 'castigat' && c.sellerId != null && sellerIds.has(c.sellerId)).length
   const alerts = inPeriod.filter((e) => e.alert)
 
   const rows = sellers
     .map((s) => {
-      const mine = companies.filter((c) => ownedBy(c, s, byId))
+      const mine = companies.filter((c) => c.sellerId === s.id)
       const acts = inPeriod.filter((e) => e.sellerId === s.id && e.category !== 'acces')
       const last = events.find((e) => e.sellerId === s.id && e.category !== 'acces')
       return {
@@ -142,8 +144,7 @@ export default function Admin() {
         title="Monitorizare echipă"
         subtitle={
           <>
-            Activitatea sales managerilor{mode === 'api' ? ', din jurnalul serverului.' : '.'}
-            {mode !== 'api' && <span className="ml-2 border border-line px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider">Date demo</span>}
+            Activitatea sales managerilor, din jurnalul serverului.
           </>
         }
         actions={
@@ -170,8 +171,8 @@ export default function Admin() {
           note={idle.length ? `${idle.length} fără nicio acțiune` : 'toți au activitate'}
           warn={idle.length > 0}
         />
-        <Tile label="Acțiuni pe lead-uri" value={leadActions} note={PERIODS.find((p) => p.id === period)!.label.toLowerCase()} />
-        <Tile label="Lead-uri câștigate" value={won} note="cu responsabil asignat, total" />
+        <Tile label="Acțiuni pe lead-uri" value={leadActions} note={`sales manageri, ${PERIODS.find((p) => p.id === period)!.label.toLowerCase()}`} />
+        <Tile label="Lead-uri câștigate" value={won} note="de sales manageri, total" />
       </div>
 
       {alerts.length > 0 && (
@@ -195,7 +196,7 @@ export default function Admin() {
       )}
 
       <div className="mb-6">
-        <DailyChart events={events} />
+        <DailyChart events={teamEvents} now={now} />
       </div>
 
       <Panel className="mb-6">

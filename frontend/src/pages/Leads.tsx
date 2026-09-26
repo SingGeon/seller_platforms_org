@@ -1,13 +1,9 @@
-import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, Plus, Search } from 'lucide-react'
+import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, Search } from 'lucide-react'
 import { useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { STAGES, getCompanies, getServices, isNew, timeAgo, topSignal } from '../data/api'
+import { STAGES, bestService, getCompanies, getServices, isNew, signalHeadline, timeAgo, topSignal, useDataVersion } from '../data/api'
 import { OTHER_INDUSTRY, industryGroup } from '../data/industry'
-import type { Company, ServiceId } from '../data/types'
 import { Avatar, Button, NewBadge, PageHeader, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, StageTag, btn } from '../components/ui'
-
-export const bestService = (c: Company) =>
-  (Object.entries(c.serviceScores) as [ServiceId, number][]).sort((a, b) => b[1] - a[1])[0][0]
 
 type SortKey = 'score' | 'updated' | 'name'
 
@@ -37,6 +33,7 @@ function pageList(current: number, total: number): (number | null)[] {
 }
 
 export default function Leads() {
+  useDataVersion()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const q = params.get('q') ?? ''
@@ -112,7 +109,7 @@ export default function Leads() {
   const exportCsv = () => {
     const head = 'Companie,Domeniu,Industrie,Țară,Scor,Stadiu,Serviciu potrivit,Semnal principal'
     const body = rows.map((c) =>
-      [c.name, c.domain, c.industry, c.countryName, c.score, c.stage, bestService(c), topSignal(c)?.title ?? '']
+      [c.name, c.domain, c.industry, c.countryName, c.score, c.stage, bestService(c) ?? '', (() => { const t = topSignal(c); return t ? signalHeadline(t) : '' })()]
         .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(','),
     )
@@ -150,9 +147,6 @@ export default function Leads() {
             </Link>
             <Button onClick={exportCsv}>
               <Download size={16} aria-hidden /> Export CSV
-            </Button>
-            <Button variant="primary">
-              <Plus size={16} aria-hidden /> Adaugă companie
             </Button>
           </>
         }
@@ -259,7 +253,7 @@ export default function Leads() {
                       <ScoreMeter score={c.score} size="sm" />
                     </div>
                   </td>
-                  <td className="px-4 py-3.5">{disq ? <span className="text-[13px]">—</span> : <ServiceTag id={bestService(c)} />}</td>
+                  <td className="px-4 py-3.5">{(() => { const b = disq ? null : bestService(c); return b ? <ServiceTag id={b} /> : <span className="text-[13px] text-muted" title="Niciun serviciu nu are încă un semnal pozitiv">—</span> })()}</td>
                   <td className="max-w-[340px] px-4 py-3.5">
                     {sig && (
                       <div className="flex gap-2">
@@ -267,7 +261,7 @@ export default function Leads() {
                           <SourceIcon type={sig.sourceType} />
                         </span>
                         <div className="min-w-0">
-                          <p className="line-clamp-2 leading-snug">{sig.title}</p>
+                          <p className="line-clamp-2 leading-snug">{signalHeadline(sig)}</p>
                           <p className="mt-0.5 text-[12px] text-muted">
                             {sig.source} · {timeAgo(sig.date)}
                             {c.signals.length > 1 && ` · +${c.signals.length - 1} semnale`}

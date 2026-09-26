@@ -83,12 +83,13 @@ const CATEGORY_RO: Record<string, string> = {
 const TIER_OF: Record<string, SourceStatus['tier']> = { stream: 'stream', feed: 'rss', incremental: 'incremental', snapshot: 'snapshot', daily: 'daily' }
 
 function mapSource(s: ApiSource): SourceStatus {
-  const status: SourceStatus['status'] = s.last_status === 'ok' ? 'ok' : s.last_status === 'error' ? 'error' : 'warn'
+  const status: SourceStatus['status'] =
+    s.missing_keys.length > 0 ? 'warn' : s.last_status === 'ok' ? 'ok' : s.last_status === 'error' ? 'error' : s.last_status === 'never' ? 'idle' : 'warn'
   const note =
     s.missing_keys.length > 0
       ? `Lipsește cheia: ${s.missing_keys.map((k) => k.toUpperCase()).join(', ')}`
       : s.last_status === 'never'
-        ? 'Nu a rulat încă'
+        ? 'Nu a rulat încă. Pornește la următoarea rulare.'
         : (s.last_error?.split(' For more information')[0].replace(/ for url '[^']*'/, '') ?? undefined)
   return {
     id: s.name, name: s.label, category: CATEGORY_RO[s.category] ?? s.category, tier: TIER_OF[s.refresh] ?? 'daily',
@@ -125,7 +126,7 @@ export interface BackendData {
 export async function loadBackendData(): Promise<BackendData> {
   const [apiServices, dashboard, apiSources, rules] = await Promise.all([
     getJson<ApiService[]>('/services'),
-    getJson<ApiDashboardCompany[]>('/dashboard/companies', 60_000),
+    getJson<ApiDashboardCompany[]>('/dashboard/companies', 120_000),
     getJson<ApiSource[]>('/sources'),
     getJson<ApiRule[]>('/rules'),
   ])

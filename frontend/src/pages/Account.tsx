@@ -2,7 +2,7 @@ import { CircleCheck, KeyRound, LogOut, UserPlus, UserRound } from 'lucide-react
 import { type FormEvent, useEffect, useId, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
-import { STAGES, getCompanies, timeAgo } from '../data/api'
+import { STAGES, getCompanies, timeAgo, useDataVersion } from '../data/api'
 import { createSeller, type Seller, updateSeller } from '../data/client'
 import { loadActivity, loadTeam, type TeamEvent } from '../data/team'
 import type { Company } from '../data/types'
@@ -23,7 +23,7 @@ function Saved({ text }: { text: string }) {
 }
 
 function ProfileTab() {
-  const { seller, updateProfile, mode } = useSession()
+  const { seller, updateProfile } = useSession()
   const uid = useId()
   const [name, setName] = useState(seller?.full_name ?? '')
   const [state, setState] = useState<'idle' | 'busy' | 'saved'>('idle')
@@ -57,14 +57,14 @@ function ProfileTab() {
         <Button type="submit" variant="primary" disabled={state === 'busy' || name.trim() === seller.full_name}>
           {state === 'busy' ? 'Se salvează…' : 'Salvează'}
         </Button>
-        {state === 'saved' && <Saved text={mode === 'api' ? 'Profil actualizat.' : 'Profil actualizat în acest browser.'} />}
+        {state === 'saved' && <Saved text="Profil actualizat." />}
       </div>
     </form>
   )
 }
 
 function SecurityTab() {
-  const { changePassword, mode } = useSession()
+  const { changePassword } = useSession()
   const uid = useId()
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
@@ -88,8 +88,6 @@ function SecurityTab() {
       setState('idle')
     }
   }
-  if (mode !== 'api')
-    return <p className="max-w-[560px] bg-band px-4 py-3">În modul demo nu există parolă salvată. Schimbarea parolei funcționează când serverul cere autentificare.</p>
   return (
     <form onSubmit={save} className="max-w-[560px] space-y-5" noValidate>
       <Field label="Parolă nouă" id={`${uid}-p`} error={errors.pw}>
@@ -132,9 +130,10 @@ function LeadRow({ c }: { c: Company }) {
 }
 
 function LeadsTab() {
-  const { seller, mode } = useSession()
+  const { seller } = useSession()
+  useDataVersion()
   const all = getCompanies()
-  const mine = all.filter((c) => (mode === 'api' ? c.sellerId === seller?.id : c.owner === seller?.full_name))
+  const mine = all.filter((c) => c.sellerId === seller?.id)
   const open = all.filter((c) => !c.owner && c.stage !== 'descalificat' && c.score >= 75).sort((a, b) => b.score - a.score).slice(0, 6)
   const byStage = STAGES.filter((s) => s.id !== 'descalificat').map((s) => ({ ...s, n: mine.filter((c) => c.stage === s.id).length }))
   return (
@@ -164,15 +163,15 @@ function LeadsTab() {
 }
 
 function ActivityTab() {
-  const { seller, mode } = useSession()
+  const { seller } = useSession()
   const [rows, setRows] = useState<TeamEvent[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     if (!seller) return
-    loadActivity(mode, 300)
-      .then((all) => setRows(all.filter((e) => (mode === 'api' ? e.sellerId === seller.id : e.seller === seller.full_name)).slice(0, 40)))
+    loadActivity(300)
+      .then((all) => setRows(all.filter((e) => e.sellerId === seller.id).slice(0, 40)))
       .catch((e) => setError(friendlyError(e)))
-  }, [mode, seller])
+  }, [seller])
   if (error) return <p className="bg-danger-bg px-4 py-3 font-bold text-danger">{error}</p>
   if (!rows) return <p className="text-muted">Se încarcă…</p>
   if (!rows.length) return <p className="text-muted">Nicio activitate înregistrată încă.</p>
@@ -202,19 +201,16 @@ function ActivityTab() {
 }
 
 function AccountsTab() {
-  const { mode } = useSession()
   const uid = useId()
   const [team, setTeam] = useState<Seller[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({ full_name: '', email: '', password: '' })
   const [msg, setMsg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const live = mode === 'api'
-  const reload = () => loadTeam(mode).then(setTeam).catch((e) => setError(friendlyError(e)))
+  const reload = () => loadTeam().then(setTeam).catch((e) => setError(friendlyError(e)))
   useEffect(() => {
     void reload()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode])
+  }, [])
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
@@ -225,14 +221,8 @@ function AccountsTab() {
     setBusy(true)
     try {
       const body = { full_name: form.full_name.trim(), email: form.email.trim().toLowerCase(), password: form.password, role: 'seller' as const }
-      if (live) {
-        await createSeller(body)
-        await reload()
-      } else {
-        if (team?.some((t) => t.email === body.email)) throw new Error('already exists')
-        const now = new Date().toISOString()
-        setTeam([...(team ?? []), { id: Date.now(), email: body.email, full_name: body.full_name, role: 'seller', active: true, created_at: now, last_login_at: null }])
-      }
+      await createSeller(body)
+      await reload()
       setMsg(`Cont creat pentru ${body.email}. Trimite-i parola temporară pe un canal sigur; o poate schimba din Contul meu → Securitate.`)
       setForm({ full_name: '', email: '', password: '' })
     } catch (err) {
@@ -246,12 +236,8 @@ function AccountsTab() {
     setMsg(null)
     setError(null)
     try {
-      if (live) {
-        await updateSeller(s.id, body)
-        await reload()
-      } else if (body.active !== undefined) {
-        setTeam((t) => (t ?? []).map((x) => (x.id === s.id ? { ...x, active: body.active! } : x)))
-      }
+      await updateSeller(s.id, body)
+      await reload()
       setMsg(done)
     } catch (err) {
       setError(friendlyError(err))
@@ -269,9 +255,6 @@ function AccountsTab() {
 
   return (
     <div className="space-y-6">
-      {!live && (
-        <p className="bg-band px-4 py-3 text-[14px]">Mod demo: conturile create aici rămân doar în această pagină și nu ajung pe server.</p>
-      )}
       <Panel>
         <PanelTitle>Creează un cont de sales manager</PanelTitle>
         <form onSubmit={add} className="grid gap-4 p-5 md:grid-cols-3" noValidate>
@@ -349,7 +332,8 @@ function AccountsTab() {
 }
 
 export default function Account() {
-  const { seller, mode, signOut } = useSession()
+  const { seller, signOut } = useSession()
+  useDataVersion()
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const tab = (params.get('tab') as Tab) || 'profile'
@@ -364,7 +348,7 @@ export default function Account() {
     ...(isAdmin ? ([['accounts', 'Conturi sales manageri']] as [Tab, string][]) : []),
   ]
   const initials = seller.full_name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
-  const mineCount = getCompanies().filter((c) => (mode === 'api' ? c.sellerId === seller.id : c.owner === seller.full_name)).length
+  const mineCount = getCompanies().filter((c) => c.sellerId === seller.id).length
 
   const out = async () => {
     await signOut()
@@ -393,8 +377,6 @@ export default function Account() {
                 <dd className="text-right">{seller.last_login_at ? timeAgo(seller.last_login_at) : '—'}</dd>
                 <dt className="text-muted">Lead-uri asignate</dt>
                 <dd className="num text-right font-bold">{mineCount}</dd>
-                <dt className="text-muted">Mod</dt>
-                <dd className="text-right">{mode === 'api' ? 'Cont pe server' : 'Demo (local)'}</dd>
               </dl>
               <button type="button" onClick={() => void out()} className={`${btn('secondary')} mt-6 w-full`}>
                 <LogOut size={16} aria-hidden /> Ieșire din cont

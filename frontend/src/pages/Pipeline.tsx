@@ -1,39 +1,47 @@
 import { Table2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { STAGES, getCompanies, isLive, patchCompany, topSignal } from '../data/api'
+import { friendlyError } from '../auth/session'
+import { STAGES, bestService, getCompanies, patchCompany, signalHeadline, topSignal, useDataVersion } from '../data/api'
 import { saveAssignment } from '../data/backend'
 import type { Stage } from '../data/types'
 import { Avatar, PageHeader, ScoreMeter, ServiceTag, btn } from '../components/ui'
-import { bestService } from './Leads'
 
 const COLUMNS = STAGES.filter((s) => s.id !== 'descalificat')
 
+/** Drops a pending move once the server has answered (saved or refused). */
+const forget = (id: string) => (moved: Record<string, Stage>) => {
+  const next = { ...moved }
+  delete next[id]
+  return next
+}
+
 export default function Pipeline() {
-  const [stages, setStages] = useState<Record<string, Stage>>(() =>
-    Object.fromEntries(getCompanies().map((c) => [c.id, c.stage])),
-  )
+  useDataVersion()
+  // Stages moved here and not yet confirmed by the server; everything else comes from the (auto-refreshed) data.
+  const [moved, setMoved] = useState<Record<string, Stage>>({})
+  const all = getCompanies()
+  const stages: Record<string, Stage> = Object.fromEntries(all.map((c) => [c.id, moved[c.id] ?? c.stage]))
   const [dragId, setDragId] = useState<string | null>(null)
   const [over, setOver] = useState<Stage | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const companies = getCompanies().filter((c) => stages[c.id] !== 'descalificat')
+  const companies = all.filter((c) => stages[c.id] !== 'descalificat')
 
   const drop = (stage: Stage) => {
     const id = dragId
     setDragId(null)
     setOver(null)
     if (!id || stages[id] === stage) return
-    const previous = stages[id]
-    setStages((s) => ({ ...s, [id]: stage }))
-    if (!isLive()) return // demo data: nothing to save
+    setMoved((s) => ({ ...s, [id]: stage }))
     saveAssignment(id, { stage })
       .then(() => {
         patchCompany(id, { stage })
+        setMoved(forget(id))
         setError(null)
       })
       .catch((err: unknown) => {
-        setStages((s) => ({ ...s, [id]: previous }))
-        setError(`Nu am putut salva stadiul: ${err instanceof Error ? err.message : String(err)}`)
+        setMoved(forget(id))
+        setError(`Nu am putut salva stadiul: ${friendlyError(err)}`)
       })
   }
 
@@ -87,9 +95,12 @@ export default function Pipeline() {
                       <div className="mt-2">
                         <ScoreMeter score={c.score} size="sm" />
                       </div>
-                      {sig && <p className="mt-2 line-clamp-2 text-[12px] leading-snug text-muted">{sig.title}</p>}
+                      {sig && <p className="mt-2 line-clamp-2 text-[12px] leading-snug text-muted">{signalHeadline(sig)}</p>}
                       <div className="mt-3 flex items-center justify-between">
-                        <ServiceTag id={bestService(c)} className="!text-[12px]" />
+                        {(() => {
+                          const b = bestService(c)
+                          return b ? <ServiceTag id={b} className="!text-[12px]" /> : <span />
+                        })()}
                         <Avatar name={c.owner} size={22} />
                       </div>
                     </Link>

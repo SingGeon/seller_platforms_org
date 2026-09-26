@@ -52,7 +52,8 @@ export async function request<T>(method: string, path: string, body?: unknown, t
     const resp = await fetch(`${API_URL}${path}`, {
       method, headers, signal: ctrl.signal, body: body !== undefined ? JSON.stringify(body) : undefined,
     })
-    if (resp.status === 401) {
+    // A 401 from /auth/login is a wrong password, not a lost session: it falls through to the error below.
+    if (resp.status === 401 && path !== '/auth/login') {
       if (token) {
         setToken(null)
         onAuthLost()
@@ -86,7 +87,7 @@ export interface AuthStatus {
   has_sellers: boolean
 }
 
-export const authStatus = () => getJson<AuthStatus>('/auth/status', 5000)
+export const authStatus = (timeoutMs = 15_000) => getJson<AuthStatus>('/auth/status', timeoutMs)
 
 export async function login(email: string, password: string): Promise<Seller> {
   const out = await postJson<{ access_token: string; seller: Seller }>('/auth/login', { email, password })
@@ -102,7 +103,7 @@ export async function logout(): Promise<void> {
   }
 }
 
-export const me = () => getJson<Seller>('/auth/me', 5000)
+export const me = () => getJson<Seller>('/auth/me', 15_000)
 
 /** Creates a sales-manager account (admin only). Admin accounts are created in the database, never through the API. */
 export const createSeller = (body: { email: string; full_name: string; password: string; role: 'seller' }) =>

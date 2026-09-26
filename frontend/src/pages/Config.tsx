@@ -1,6 +1,7 @@
-import { CircleCheck, Plus, Trash2 } from 'lucide-react'
+import { CircleCheck, Lock, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { getQuestions, getServices, isLive, loadData } from '../data/api'
+import { useSession } from '../auth/session'
+import { getQuestions, getServices, loadData } from '../data/api'
 import { type ApiQuestionFull, type ConfigData, configApi, loadConfig } from '../data/backend'
 import type { ServiceId, SignalQuestion, Weight } from '../data/types'
 import { Button, Panel, PanelTitle, PageHeader, ServiceTag } from '../components/ui'
@@ -83,6 +84,8 @@ const toCodes = (names: string[], table: [string, string][]) => table.filter(([n
 const toNames = (codes: string[], table: [string, string][]) => table.filter(([, v]) => codes.map((c) => c.toLowerCase()).includes(v.toLowerCase())).map(([n]) => n)
 
 export default function Config() {
+  // Sales managers see the current setup; only an admin changes it (it re-scores every company for everyone).
+  const isAdmin = useSession().seller?.role === 'admin'
   const [tab, setTab] = useState<Tab>('questions')
   const [questions, setQuestions] = useState<SignalQuestion[]>(getQuestions)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -102,7 +105,6 @@ export default function Config() {
 
   // Start from what is stored in PostgreSQL (questions, rules, ICP, scoring config).
   useEffect(() => {
-    if (!isLive()) return
     loadConfig()
       .then((cfg) => {
         setConfig(cfg)
@@ -125,8 +127,7 @@ export default function Config() {
 
   const save = async () => {
     if (!config) {
-      setDirty(false)
-      setSaved(true)
+      setError('Configurarea nu s-a încărcat de pe server, așa că nu poate fi salvată. Reîncarcă pagina.')
       return
     }
     setSaving(true)
@@ -212,13 +213,16 @@ export default function Config() {
       ) : (
         <WeightPicker value={q.weight} onChange={(w) => update(q.id, { weight: w })} label={`Importanță: ${q.text}`} />
       )}
-      <button type="button" onClick={() => remove(q.id)} className="p-1 text-muted hover:text-danger" aria-label={`Șterge: ${q.text}`}>
-        <Trash2 size={17} />
-      </button>
+      {isAdmin && (
+        <button type="button" onClick={() => remove(q.id)} className="p-1 text-muted hover:text-danger" aria-label={`Șterge: ${q.text}`}>
+          <Trash2 size={17} />
+        </button>
+      )}
     </li>
   )
 
-  const addRow = (k: string, service: ServiceId | null, placeholder: string) => (
+  const addRow = (k: string, service: ServiceId | null, placeholder: string) =>
+    isAdmin && (
     <form
       onSubmit={(e) => {
         e.preventDefault()
@@ -253,6 +257,12 @@ export default function Config() {
         subtitle="Definește ce înseamnă un lead bun. Orice schimbare recalculează scorurile tuturor companiilor."
       />
 
+      {!isAdmin && (
+        <p className="mb-6 flex items-center gap-2 border-l-4 border-ink bg-band px-4 py-3 text-[14px]">
+          <Lock size={16} aria-hidden /> Doar administratorul poate modifica configurarea. Aici vezi setările după care se calculează scorurile.
+        </p>
+      )}
+
       <div className="mb-6 flex border-b-2 border-ink" role="tablist">
         {tabs.map(([id, label]) => (
           <button
@@ -268,6 +278,8 @@ export default function Config() {
         ))}
       </div>
 
+      {/* A disabled fieldset makes every control inside read-only for sales managers. */}
+      <fieldset disabled={!isAdmin} className="m-0 min-w-0 border-0 p-0">
       {tab === 'questions' && (
         <div className="space-y-6">
           <p className="max-w-3xl text-muted">
@@ -461,7 +473,9 @@ export default function Config() {
         </div>
       )}
 
-      {(dirty || saved || error) && (
+      </fieldset>
+
+      {isAdmin && (dirty || saved || error) && (
         <div className="fixed bottom-0 left-60 right-0 z-10 border-t-2 border-ink bg-white px-8 py-3">
           <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-4">
             {error ? (
