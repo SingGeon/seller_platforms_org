@@ -124,8 +124,8 @@ async def fetch_registry(client: httpx.AsyncClient, countries: list[str], target
     return [r for c in countries for r in by_country[c]]
 
 
-def companies_needing_news(ids: list[int]) -> list[int]:
-    cutoff = utcnow() - timedelta(hours=NEWS_FRESH_HOURS)
+def companies_needing_news(ids: list[int], fresh_hours: float = NEWS_FRESH_HOURS) -> list[int]:
+    cutoff = utcnow() - timedelta(hours=fresh_hours)
     fresh = set(
         mongo.db()[mongo.DOCUMENTS].distinct(
             "company_id", {"company_id": {"$in": ids}, "source_type": "news", "fetched_at": {"$gte": cutoff}}
@@ -251,15 +251,15 @@ async def bootstrap(
 async def refresh_news(
     sf: sessionmaker, *, countries: list[str] | None = None, gdelt: bool = False, analyze: bool = True,
     concurrency: int = 2, say: Callable[[str], None] = print, client: httpx.AsyncClient | None = None,
-    providers: tuple[str, ...] = NEWS_PROVIDERS, press: bool = True,
+    providers: tuple[str, ...] = NEWS_PROVIDERS, press: bool = True, fresh_hours: float = NEWS_FRESH_HOURS,
 ) -> dict[str, Any]:
     """News for companies already in the database (no registry calls), e.g. after a news provider throttled a
-    bootstrap. Companies that got news in the last NEWS_FRESH_HOURS are skipped, so it can be re-run safely."""
+    bootstrap. Companies that got news in the last `fresh_hours` are skipped, so it can be re-run safely."""
     started = time.monotonic()
     query = {"country": {"$in": countries}} if countries else {}
     ids = mongo.ids(mongo.COMPANIES, query)
-    todo = companies_needing_news(ids)
-    say(f"News for {len(todo)} of {len(ids)} companies (the others got news in the last {NEWS_FRESH_HOURS} h)")
+    todo = companies_needing_news(ids, fresh_hours)
+    say(f"News for {len(todo)} of {len(ids)} companies (the others got news in the last {fresh_hours:g} h)")
     own_client = client is None
     client = client or httpx.AsyncClient(timeout=60, follow_redirects=True, headers={"User-Agent": "OrangeSignals/0.1 (B2B sales research)"})
     try:
@@ -305,6 +305,8 @@ def main() -> None:
     parser.add_argument("--news-providers", default=",".join(NEWS_PROVIDERS),
                         help="per-company news providers: google_news,bing_news (empty = business-press feeds only)")
     parser.add_argument("--no-press", action="store_true", help="skip the RO / MD business-press feeds")
+    parser.add_argument("--fresh-hours", type=float, default=NEWS_FRESH_HOURS,
+                        help="with --refresh-news: skip companies that got news in the last N hours (a daily job needs less than 24)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.WARNING)
     from .db import SessionLocal
@@ -316,7 +318,8 @@ def main() -> None:
     if args.refresh_news:
         providers = tuple(p.strip() for p in args.news_providers.split(",") if p.strip())
         asyncio.run(refresh_news(SessionLocal, countries=countries, gdelt=args.gdelt, analyze=not args.no_analyze,
-                                 concurrency=args.news_concurrency, providers=providers, press=not args.no_press))
+                                 concurrency=args.news_concurrency, providers=providers, press=not args.no_press,
+                                 fresh_hours=args.fresh_hours))
         return
     countries = countries or DEFAULT_COUNTRIES
     asyncio.run(

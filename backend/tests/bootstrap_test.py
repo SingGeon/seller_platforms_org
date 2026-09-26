@@ -10,7 +10,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.bootstrap import bootstrap
+from app.bootstrap import bootstrap, companies_needing_news
 from app.main import create_app
 from app import mongo
 from sales_pipeline import HeuristicBackend
@@ -83,6 +83,13 @@ def test_bootstrap_loads_real_registry_records_news_and_scores(seeded):
     again = asyncio.run(bootstrap(seeded, countries=["RO", "MD"], target=40, llm=HeuristicBackend(), client=registry_client(50), say=lambda m: None))
     assert again["companies_created"] == 0 and again["news"]["news_documents"] == 0
     assert again["totals"]["companies"] == stats["totals"]["companies"]
+
+
+def test_fresh_hours_sets_which_companies_get_news_again(seeded):
+    asyncio.run(bootstrap(seeded, countries=["RO"], target=5, analyze=False, client=registry_client(10), say=lambda m: None))
+    ids = mongo.ids(mongo.COMPANIES, {"origin": "wikidata"})
+    assert len(ids) == 5 and companies_needing_news(ids) == []  # all got news just now, inside the default 24 h
+    assert companies_needing_news(ids, fresh_hours=0) == ids  # a daily job with a shorter window refetches them
 
 
 def test_shortfall_is_redistributed_to_countries_with_more_companies(seeded):

@@ -134,6 +134,12 @@ python -m app.bootstrap --refresh-news --news-providers bing_news   # while Goog
 # or via the API: POST /bootstrap/runs {"countries": ["RO","MD","DE"], "target": 1000, "enrich_top_n": 30}
 ```
 
+**Daily refresh in the cloud:** the GitHub Actions workflow `.github/workflows/refresh-news.yml` runs
+`python -m app.bootstrap --refresh-news --fresh-hours 20` every day at 03:00 UTC against the cloud databases (and on
+demand from Actions → Refresh news → Run workflow). It needs the repository secrets `DATABASE_URL` (Neon,
+`postgresql+psycopg://...`) and `MONGO_URI` (Atlas); `ANTHROPIC_API_KEY` is optional. `--fresh-hours` below 24 makes
+a company that got news in yesterday's run eligible again today.
+
 1. **Companies** come from Wikidata: companies with an official website in each country, best-known first (by
    Wikipedia sitelinks), with industry (mapped onto the ICP vocabulary), employees, LEI and stock listing. Countries
    with few Wikidata companies (e.g. MD) hand their shortfall to the others; `--gleif-fill` tops up with registered
