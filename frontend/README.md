@@ -21,7 +21,7 @@ Requires Node 22.22+.
 | `/leads` | Lead list — filters (service, industry sector, country, stage, new), sort, pagination, CSV export | GIG-34 |
 | `/leads/:id` | Company record — score breakdown, "why now", evidence with sources, timeline, notes | GIG-35 |
 | `/pipeline` | Kanban by stage, drag & drop | — |
-| `/config` | Signal questions + weights, negative rules, ICP, scoring (admins edit, sales managers read) | GIG-36 |
+| `/config` | Signal questions + weights, negative rules, ICP, scoring (admins edit, sales managers read). Admins add a service category with "Serviciu nou" (`POST /services`, the shared ICP and an optional first question) | GIG-36 |
 | `/runs` | Data sources, refresh tiers, run status (admins start runs) | GIG-37 |
 
 ## Data

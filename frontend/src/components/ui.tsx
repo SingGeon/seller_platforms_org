@@ -46,7 +46,14 @@ const SLOTS = 7
 
 export function serviceColor(id: ServiceId): string {
   let slot = SERVICE_SLOT[id]
-  if (!slot) slot = (Math.max(0, getServices().findIndex((s) => s.id === id)) % SLOTS) + 1
+  if (!slot) {
+    // A service added later takes the first colour no configured service uses, so it never repeats a neighbour's.
+    const services = getServices().map((s) => s.id)
+    const taken = new Set(services.map((s) => SERVICE_SLOT[s]).filter(Boolean))
+    const free = Array.from({ length: SLOTS }, (_, k) => k + 1).filter((n) => !taken.has(n))
+    const extra = services.filter((s) => !SERVICE_SLOT[s]).indexOf(id)
+    slot = free.length ? free[Math.max(0, extra) % free.length] : (Math.max(0, extra) % SLOTS) + 1
+  }
   return `var(--color-svc-${slot})`
 }
 

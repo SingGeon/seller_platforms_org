@@ -273,6 +273,9 @@ const ruleBody = (r: ApiRuleFull) => ({
 })
 
 export const configApi = {
+  /** Admin only on the server (POST /services); a new service starts without ICP, so every company fits it until one is set. */
+  createService: (body: { name: string; slug: string; description: string; value_proposition: string }) =>
+    postJson<ApiService>('/services', body),
   createQuestion: (serviceId: number, text: string, weight: 'High' | 'Medium' | 'Low', isNegative: boolean) =>
     postJson(`/services/${serviceId}/questions`, { text, weight, is_negative: isNegative }),
   updateQuestion: (q: ApiQuestionFull) => putJson(`/services/${q.service_id}/questions/${q.id}`, questionBody(q)),

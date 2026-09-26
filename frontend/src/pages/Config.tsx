@@ -1,9 +1,10 @@
 import { CircleCheck, Lock, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useSession } from '../auth/session'
-import { getQuestions, getServices, loadData } from '../data/api'
+import { getQuestions, getServices, loadData, useDataVersion } from '../data/api'
 import { type ApiQuestionFull, type ConfigData, configApi, loadConfig } from '../data/backend'
 import type { ServiceId, SignalQuestion, Weight } from '../data/types'
+import NewServiceForm from '../components/NewServiceForm'
 import { Button, Panel, PanelTitle, PageHeader, ServiceTag } from '../components/ui'
 
 const WEIGHTS: [Weight, string][] = [
@@ -86,6 +87,7 @@ const toNames = (codes: string[], table: [string, string][]) => table.filter(([,
 export default function Config() {
   // Sales managers see the current setup; only an admin changes it (it re-scores every company for everyone).
   const isAdmin = useSession().seller?.role === 'admin'
+  useDataVersion()
   const [tab, setTab] = useState<Tab>('questions')
   const [questions, setQuestions] = useState<SignalQuestion[]>(getQuestions)
   const [drafts, setDrafts] = useState<Record<string, string>>({})
@@ -179,6 +181,16 @@ export default function Config() {
     } finally {
       setSaving(false)
     }
+  }
+
+  // A new service came from the form: reload services and questions, keep the unsaved edits made on this page.
+  const addedService = async (slug: string) => {
+    await loadData()
+    setConfig(await loadConfig())
+    const known = new Set(questions.map((q) => q.id))
+    setQuestions((qs) => [...qs, ...getQuestions().filter((q) => !known.has(q.id))])
+    setSaved(false)
+    requestAnimationFrame(() => document.getElementById(`service-${slug}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
   }
 
   const touch = () => {
@@ -282,14 +294,24 @@ export default function Config() {
       <fieldset disabled={!isAdmin} className="m-0 min-w-0 border-0 p-0">
       {tab === 'questions' && (
         <div className="space-y-6">
-          <p className="max-w-3xl text-muted">
-            Scrie întrebările în limbaj natural. AI-ul le caută răspunsul în știri, joburi, licitații și rapoarte, și citează sursa pentru fiecare
-            răspuns. Importanța decide cât contează răspunsul în scor.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <p className="max-w-3xl text-muted">
+              Scrie întrebările în limbaj natural. AI-ul le caută răspunsul în știri, joburi, licitații și rapoarte, și citează sursa pentru fiecare
+              răspuns. Importanța decide cât contează răspunsul în scor.
+            </p>
+            {isAdmin && (
+              <NewServiceForm
+                takenSlugs={config?.services.map((s) => s.slug) ?? []}
+                baseIcp={config?.icps[0] ?? null}
+                onCreated={addedService}
+              />
+            )}
+          </div>
           {getServices().map((s) => {
             const list = questions.filter((q) => q.service === s.id)
             return (
-              <Panel key={s.id}>
+              <div key={s.id} id={`service-${s.id}`} className="scroll-mt-6">
+              <Panel>
                 <PanelTitle action={<span className="text-[13px] text-muted">{list.filter((q) => q.active).length} active</span>}>
                   <span className="flex items-center gap-3">
                     <ServiceTag id={s.id} className="!text-[16px]" />
@@ -301,6 +323,7 @@ export default function Config() {
                 </ul>
                 {addRow(s.id, s.id, `Întrebare nouă pentru ${s.short}…`)}
               </Panel>
+              </div>
             )
           })}
         </div>
