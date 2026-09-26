@@ -1,8 +1,10 @@
 # Daily news refresh in the cloud: fetches new articles for every stored company (RO / MD business press,
 # Google News, Bing News), re-runs the signal analysis and re-scores, writing straight to MongoDB Atlas and Neon.
 # Runs on GitHub's servers, so it works while the free Render instance sleeps.
-# Needs two repository secrets (Settings -> Secrets and variables -> Actions): DATABASE_URL (Neon,
-# postgresql+psycopg://...) and MONGO_URI (Atlas, mongodb+srv://...). Atlas Network Access must allow 0.0.0.0/0.
+# Needs the Neon and Atlas connection strings as repository secrets (Settings -> Secrets and variables -> Actions):
+# either DATABASE_URL (postgresql+psycopg://...) and MONGO_URI (mongodb+srv://...), or one secret ALFA holding the
+# lines of .env.render (DATABASE_URL=..., MONGO_URI=...) or .env.cloud (PG_CLOUD_URL=..., MONGO_CLOUD_URI=...).
+# Atlas Network Access must allow 0.0.0.0/0.
 name: Refresh news
 
 on:
@@ -19,9 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_SCHEMA: LeadRadar
-      MONGO_URI: ${{ secrets.MONGO_URI }}
       MONGO_DB: leadradar
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}   # optional; without it the offline analysis is used
     steps:
@@ -35,10 +35,21 @@ jobs:
             pipeline/pyproject.toml
       - name: Install
         run: pip install -e pipeline -r backend/requirements.txt
-      - name: Check the secrets are set
+      - name: Read the connection strings from the secrets
+        env:
+          PG_SECRET: ${{ secrets.DATABASE_URL }}
+          MONGO_SECRET: ${{ secrets.MONGO_URI }}
+          ALFA: ${{ secrets.ALFA }}
         run: |
-          test -n "$DATABASE_URL" || { echo "::error::Repository secret DATABASE_URL is missing"; exit 1; }
-          test -n "$MONGO_URI" || { echo "::error::Repository secret MONGO_URI is missing"; exit 1; }
+          # value of KEY=... in the ALFA secret (quotes, spaces and Windows line ends removed)
+          get() { printf '%s\n' "$ALFA" | tr -d '\r' | sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\?$1[[:space:]]*=[[:space:]]*//p" | head -n1 | sed "s/^[\"']//; s/[\"'][[:space:]]*$//; s/[[:space:]]*$//"; }
+          pg="${PG_SECRET:-$(get DATABASE_URL)}"; pg="${pg:-$(get PG_CLOUD_URL)}"
+          mongo="${MONGO_SECRET:-$(get MONGO_URI)}"; mongo="${mongo:-$(get MONGO_CLOUD_URI)}"
+          pg="$(printf '%s' "$pg" | sed 's#^postgres\(ql\)\?://#postgresql+psycopg://#')"   # SQLAlchemy needs the psycopg driver
+          test -n "$pg" || { echo "::error::No Neon URL: add secret DATABASE_URL, or a DATABASE_URL= / PG_CLOUD_URL= line in ALFA"; exit 1; }
+          test -n "$mongo" || { echo "::error::No Atlas URL: add secret MONGO_URI, or a MONGO_URI= / MONGO_CLOUD_URI= line in ALFA"; exit 1; }
+          echo "::add-mask::$pg"; echo "::add-mask::$mongo"
+          { echo "DATABASE_URL=$pg"; echo "MONGO_URI=$mongo"; } >> "$GITHUB_ENV"
       - name: Refresh news, analyse and re-score
         working-directory: backend
         # --fresh-hours 20: a company that got news in yesterday's run is fetched again today (24 would skip it)
