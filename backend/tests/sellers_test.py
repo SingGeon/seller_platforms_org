@@ -156,3 +156,55 @@ def test_passwords_are_stored_in_plain_text_and_legacy_hashes_still_log_in(api, 
     with seeded() as db:
         assert db.get(Seller, old_id).password == "legacy-pass-1"  # upgraded to plain text on login
     assert "password" not in api.get("/auth/me", headers=login(api, "old@leadradar.md", "legacy-pass-1")).json()  # never exposed
+
+
+def test_only_admins_change_configuration_sources_runs_and_companies(api, admin):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    api.post("/sellers", headers=h, json={"email": "ana@leadradar.md", "full_name": "Ana", "password": "ana-pass-12"})
+    ah = login(api, "ana@leadradar.md", "ana-pass-12")
+    service = api.get("/services", headers=ah).json()[0]
+    question = api.get(f"/services/{service['id']}/questions", headers=ah).json()[0]
+    company = api.get("/companies", headers=ah).json()[0]
+    changes = [
+        ("post", "/services", {"name": "X", "slug": "x"}),
+        ("put", f"/services/{service['id']}/questions/{question['id']}", {**question, "text": "Changed?"}),
+        ("delete", f"/services/{service['id']}/questions/{question['id']}", None),
+        ("post", "/rules", {"name": "r", "rule_type": "llm_question", "question": "q?"}),
+        ("put", "/scoring-config", api.get("/scoring-config", headers=ah).json()),
+        ("put", f"/icp/{service['id']}", {"industries": []}),
+        ("post", "/scores/recompute", None),
+        ("put", "/sources/bing_news", {"enabled": False}),
+        ("post", "/discovery/runs", {}),
+        ("post", "/runs", {}),
+        ("delete", f"/companies/{company['id']}", None),
+    ]
+    for method, path, body in changes:
+        kwargs = {"json": body} if body is not None else {}
+        assert getattr(api, method)(path, headers=ah, **kwargs).status_code == 403, (method, path)  # a sales manager
+    assert api.get(f"/services/{service['id']}/questions", headers=ah).json()[0]["text"] == question["text"]  # nothing changed
+    # reading the configuration and working on leads stay open to sales managers
+    assert api.get("/rules", headers=ah).status_code == 200 and api.get("/icp", headers=ah).status_code == 200
+    assert api.put(f"/companies/{company['id']}/assignment", headers=ah, json={"stage": "contactat"}).status_code == 200
+    assert api.post(f"/companies/{company['id']}/notes", headers=ah, json={"text": "called"}).status_code == 201
+    # the admin still can
+    assert api.put(f"/services/{service['id']}/questions/{question['id']}", headers=h, json={**question, "text": "Changed?"}).status_code == 200
+
+
+def test_failed_logins_are_in_the_activity_log_without_the_password(api, admin):
+    assert api.post("/auth/login", json={"email": ADMIN["email"], "password": "wrong-guess-1"}).status_code == 401
+    assert api.post("/auth/login", json={"email": "nobody@leadradar.md", "password": "x"}).status_code == 401
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    failed = [a for a in api.get("/activity", headers=h).json() if a["action"] == "login_failed"]
+    assert {(a["details"]["email"], a["details"]["reason"]) for a in failed} == {
+        (ADMIN["email"], "wrong_password"), ("nobody@leadradar.md", "unknown_email")}
+    assert next(a for a in failed if a["details"]["reason"] == "wrong_password")["seller"] == "Admin One"
+    assert "wrong-guess-1" not in str(failed)
+
+
+@pytest.mark.parametrize("language,greeting", [("RO", "Bună ziua"), ("DE", "Guten Tag"), ("EN", "Hello")])
+def test_contact_message_follows_the_chosen_language(api, admin, language, greeting):
+    h = login(api, ADMIN["email"], ADMIN["password"])
+    company = api.get("/companies", headers=h).json()[0]
+    service = api.get("/services", headers=h).json()[0]
+    draft = api.post(f"/companies/{company['id']}/outreach?service={service['id']}&channel=email&language={language}", headers=h).json()
+    assert draft["body"].startswith(greeting) and draft["language"] == language

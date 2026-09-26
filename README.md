@@ -445,6 +445,19 @@ erDiagram
 Every endpoint except `/health`, `/auth/status` and `/auth/login` needs `Authorization: Bearer <token>`
 (`AUTH_REQUIRED=false` turns this off for local experiments).
 
+**What a sales manager (`seller`) may change.** Reading everything, and working on leads: stage and owner (a free
+lead or their own), notes, contact messages, HubSpot, LinkedIn validation, manual signals. **Only an admin** may change
+the configuration (services, ICP, signal questions, rules, scoring, score recompute), sources and runs (settings,
+sync, discovery / bootstrap / enrichment runs) and the company list (add, import, edit, delete): the server answers
+`403` to a seller (`app/auth.py` `admin_guard`), whatever the interface shows.
+
+**Failed logins** are written to the activity log as `login_failed` with the email tried, the reason
+(`unknown_email`, `inactive`, `wrong_password`) and the IP, never the password; the caller only gets "Wrong email or
+password".
+
+**Contact messages** (`POST /companies/{id}/outreach?language=RO|EN|DE`) come in the chosen language also without an
+`ANTHROPIC_API_KEY`: the offline templates exist in Romanian, German and English, with the service names translated.
+
 **Passwords are stored in plain text** in `sellers.password` (team decision, migration 0004): anyone who can read the
 PostgreSQL database or one of its backups sees every password, so keep database access to the admins, and ask sellers
 not to reuse a password from another service. The API never returns the password. Accounts created before 0004 keep

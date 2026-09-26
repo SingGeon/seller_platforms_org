@@ -12,6 +12,7 @@ from ..schemas import (
 )
 from ..scoring.rules import RULE_FIELDS
 from ..scoring_service import get_scoring_config, recompute_scores
+from ..auth import admin_guard
 from .deps import get_db, get_or_404
 
 router = APIRouter()
@@ -23,7 +24,7 @@ def list_services(db: Session = Depends(get_db)):
     return list(db.scalars(select(Service).order_by(Service.id)))
 
 
-@router.post("/services", response_model=ServiceOut, status_code=201, tags=["config"])
+@router.post("/services", response_model=ServiceOut, status_code=201, tags=["config"], dependencies=[Depends(admin_guard)])
 def create_service(body: ServiceIn, db: Session = Depends(get_db)):
     svc = Service(**body.model_dump())
     db.add(svc)
@@ -40,7 +41,7 @@ def get_service(service_id: int, db: Session = Depends(get_db)):
     return get_or_404(db, Service, service_id)
 
 
-@router.put("/services/{service_id}", response_model=ServiceOut, tags=["config"])
+@router.put("/services/{service_id}", response_model=ServiceOut, tags=["config"], dependencies=[Depends(admin_guard)])
 def update_service(service_id: int, body: ServiceIn, db: Session = Depends(get_db)):
     svc = get_or_404(db, Service, service_id)
     for k, v in body.model_dump().items():
@@ -50,7 +51,7 @@ def update_service(service_id: int, body: ServiceIn, db: Session = Depends(get_d
     return svc
 
 
-@router.delete("/services/{service_id}", status_code=204, tags=["config"])
+@router.delete("/services/{service_id}", status_code=204, tags=["config"], dependencies=[Depends(admin_guard)])
 def delete_service(service_id: int, db: Session = Depends(get_db)):
     svc = get_or_404(db, Service, service_id)
     question_ids = [q.id for q in svc.questions]
@@ -74,7 +75,7 @@ def get_icp(service_id: int, db: Session = Depends(get_db)):
     return icp
 
 
-@router.put("/icp/{service_id}", response_model=IcpOut, tags=["config"])
+@router.put("/icp/{service_id}", response_model=IcpOut, tags=["config"], dependencies=[Depends(admin_guard)])
 def upsert_icp(service_id: int, body: IcpIn, db: Session = Depends(get_db)):
     get_or_404(db, Service, service_id)
     icp = db.scalar(select(IcpCriteria).where(IcpCriteria.service_id == service_id))
@@ -90,7 +91,7 @@ def upsert_icp(service_id: int, body: IcpIn, db: Session = Depends(get_db)):
     return icp
 
 
-@router.delete("/icp/{service_id}", status_code=204, tags=["config"])
+@router.delete("/icp/{service_id}", status_code=204, tags=["config"], dependencies=[Depends(admin_guard)])
 def delete_icp(service_id: int, db: Session = Depends(get_db)):
     icp = db.scalar(select(IcpCriteria).where(IcpCriteria.service_id == service_id))
     if icp:
@@ -107,7 +108,7 @@ def list_questions(service_id: int, db: Session = Depends(get_db)):
     return list(db.scalars(select(SignalQuestion).where(SignalQuestion.service_id == service_id).order_by(SignalQuestion.id)))
 
 
-@router.post("/services/{service_id}/questions", response_model=QuestionOut, status_code=201, tags=["config"])
+@router.post("/services/{service_id}/questions", response_model=QuestionOut, status_code=201, tags=["config"], dependencies=[Depends(admin_guard)])
 def create_question(service_id: int, body: QuestionIn, db: Session = Depends(get_db)):
     get_or_404(db, Service, service_id)
     q = SignalQuestion(service_id=service_id, **body.model_dump())
@@ -117,7 +118,7 @@ def create_question(service_id: int, body: QuestionIn, db: Session = Depends(get
     return q
 
 
-@router.put("/services/{service_id}/questions/{question_id}", response_model=QuestionOut, tags=["config"])
+@router.put("/services/{service_id}/questions/{question_id}", response_model=QuestionOut, tags=["config"], dependencies=[Depends(admin_guard)])
 def update_question(service_id: int, question_id: int, body: QuestionIn, db: Session = Depends(get_db)):
     q = get_or_404(db, SignalQuestion, question_id)
     if q.service_id != service_id:
@@ -133,7 +134,7 @@ def update_question(service_id: int, question_id: int, body: QuestionIn, db: Ses
     return q
 
 
-@router.delete("/services/{service_id}/questions/{question_id}", status_code=204, tags=["config"])
+@router.delete("/services/{service_id}/questions/{question_id}", status_code=204, tags=["config"], dependencies=[Depends(admin_guard)])
 def delete_question(service_id: int, question_id: int, db: Session = Depends(get_db)):
     q = get_or_404(db, SignalQuestion, question_id)
     if q.service_id != service_id:
@@ -160,7 +161,7 @@ def list_all_rules(db: Session = Depends(get_db)):
     return list(db.scalars(select(DisqualificationRule).order_by(DisqualificationRule.id)))
 
 
-@router.post("/rules", response_model=RuleOut, status_code=201, tags=["config"], summary="Create a global rule (all services)")
+@router.post("/rules", response_model=RuleOut, status_code=201, tags=["config"], summary="Create a global rule (all services)", dependencies=[Depends(admin_guard)])
 def create_global_rule(body: RuleIn, db: Session = Depends(get_db)):
     _validate_rule(body)
     rule = DisqualificationRule(service_id=None, **body.model_dump())
@@ -182,7 +183,7 @@ def list_rules(service_id: int, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/services/{service_id}/rules", response_model=RuleOut, status_code=201, tags=["config"])
+@router.post("/services/{service_id}/rules", response_model=RuleOut, status_code=201, tags=["config"], dependencies=[Depends(admin_guard)])
 def create_rule(service_id: int, body: RuleIn, db: Session = Depends(get_db)):
     get_or_404(db, Service, service_id)
     _validate_rule(body)
@@ -193,7 +194,7 @@ def create_rule(service_id: int, body: RuleIn, db: Session = Depends(get_db)):
     return rule
 
 
-@router.put("/rules/{rule_id}", response_model=RuleOut, tags=["config"])
+@router.put("/rules/{rule_id}", response_model=RuleOut, tags=["config"], dependencies=[Depends(admin_guard)])
 def update_rule(rule_id: int, body: RuleIn, db: Session = Depends(get_db)):
     rule = get_or_404(db, DisqualificationRule, rule_id)
     _validate_rule(body)
@@ -204,7 +205,7 @@ def update_rule(rule_id: int, body: RuleIn, db: Session = Depends(get_db)):
     return rule
 
 
-@router.delete("/rules/{rule_id}", status_code=204, tags=["config"])
+@router.delete("/rules/{rule_id}", status_code=204, tags=["config"], dependencies=[Depends(admin_guard)])
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     db.delete(get_or_404(db, DisqualificationRule, rule_id))
     db.commit()
@@ -221,7 +222,7 @@ def read_scoring_config(db: Session = Depends(get_db)):
     return cfg
 
 
-@router.put("/scoring-config", response_model=ScoringConfigOut, tags=["config"])
+@router.put("/scoring-config", response_model=ScoringConfigOut, tags=["config"], dependencies=[Depends(admin_guard)])
 def update_scoring_config(body: ScoringConfigIn, db: Session = Depends(get_db)):
     if body.warm_threshold > body.hot_threshold:
         raise HTTPException(422, "warm_threshold must be <= hot_threshold")
@@ -236,7 +237,7 @@ def update_scoring_config(body: ScoringConfigIn, db: Session = Depends(get_db)):
     return cfg
 
 
-@router.post("/scores/recompute", tags=["config"])
+@router.post("/scores/recompute", tags=["config"], dependencies=[Depends(admin_guard)])
 def recompute(db: Session = Depends(get_db)):
     rows = recompute_scores(db)
     return {"recomputed": len(rows)}

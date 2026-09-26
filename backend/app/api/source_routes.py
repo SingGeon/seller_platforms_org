@@ -18,6 +18,7 @@ from ..discovery import get_state, run_discovery, source_keys
 from ..models import SourceState
 from ..mongo import MDoc
 from ..schemas import RunOut
+from ..auth import admin_guard
 from .deps import get_db
 
 router = APIRouter(tags=["sources"])
@@ -92,7 +93,7 @@ def get_source(name: str, db: Session = Depends(get_db)):
     return _out(spec, db.get(SourceState, name), source_keys())
 
 
-@router.put("/sources/{name}", response_model=SourceOut)
+@router.put("/sources/{name}", response_model=SourceOut, dependencies=[Depends(admin_guard)])
 def update_source(name: str, body: SourceUpdate, db: Session = Depends(get_db)):
     spec = BY_NAME.get(name) or _404(name)
     state = get_state(db, name)
@@ -140,7 +141,7 @@ class BootstrapIn(BaseModel):
     enrich_top_n: int = Field(0, ge=0, le=500)
 
 
-@router.post("/bootstrap/runs", response_model=RunOut, status_code=202, summary="Load a large real company universe (Wikidata/GLEIF + news + scoring)")
+@router.post("/bootstrap/runs", response_model=RunOut, status_code=202, summary="Load a large real company universe (Wikidata/GLEIF + news + scoring)", dependencies=[Depends(admin_guard)])
 async def start_bootstrap(body: BootstrapIn, request: Request):
     countries = [c.strip().upper() for c in body.countries]
     unknown = [c for c in countries if c not in COUNTRY_QID]
@@ -175,11 +176,11 @@ async def start_bootstrap(body: BootstrapIn, request: Request):
     return run
 
 
-@router.post("/sources/{name}/sync", response_model=RunOut, status_code=202)
+@router.post("/sources/{name}/sync", response_model=RunOut, status_code=202, dependencies=[Depends(admin_guard)])
 async def sync_one(name: str, request: Request):
     return _start(request, [name], 0)
 
 
-@router.post("/discovery/runs", response_model=RunOut, status_code=202)
+@router.post("/discovery/runs", response_model=RunOut, status_code=202, dependencies=[Depends(admin_guard)])
 async def start_discovery(body: DiscoveryIn, request: Request):
     return _start(request, body.sources, body.enrich_top_n)

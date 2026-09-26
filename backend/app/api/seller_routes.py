@@ -26,9 +26,17 @@ def auth_status(request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/auth/login", response_model=TokenOut, tags=["auth"])
-def login(body: LoginIn, db: Session = Depends(get_db)):
-    seller = db.scalar(select(Seller).where(func.lower(Seller.email) == body.email.strip().lower()))
-    if seller is None or not seller.active or not check_password(db, seller, body.password):
+def login(body: LoginIn, request: Request, db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    seller = db.scalar(select(Seller).where(func.lower(Seller.email) == email))
+    reason = "unknown_email" if seller is None else "inactive" if not seller.active else None
+    if reason is None and not check_password(db, seller, body.password):
+        reason = "wrong_password"
+    if reason:
+        # Failed attempts go to the activity log (never the password); the caller only learns "wrong email or password".
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        mongo.log_activity("login_failed", seller, email=email[:200], reason=reason,
+                           ip=forwarded or (request.client.host if request.client else None))
         raise HTTPException(401, "Wrong email or password")
     token, expires = issue_token(db, seller)
     mongo.log_activity("login", seller)

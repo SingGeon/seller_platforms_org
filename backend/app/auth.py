@@ -93,3 +93,14 @@ def require_admin(seller: Seller = Depends(current_seller)) -> Seller:
     if seller.role != "admin":
         raise HTTPException(403, "Admin only")
     return seller
+
+
+def admin_guard(request: Request, seller: Seller | None = Depends(optional_seller)) -> None:
+    """Route guard for changes only an admin may make (configuration, sources and runs, the company list).
+    With auth switched off (local demo, tests) it lets everything through, like auth_guard."""
+    if not request.app.state.auth_required:
+        return
+    if seller is None:
+        raise HTTPException(401, "Login required", headers={"WWW-Authenticate": "Bearer"})
+    if seller.role != "admin":
+        raise HTTPException(403, "Only an admin can change this")

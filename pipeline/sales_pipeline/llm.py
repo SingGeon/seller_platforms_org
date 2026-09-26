@@ -379,19 +379,56 @@ class HeuristicBackend:
         company = payload["company"]
         sig = (payload.get("top_signals") or [{}])[0]
         quote = sig.get("quote", "")
-        service = payload["service"]
-        vp = payload.get("value_proposition") or f"{service} delivered by Orange Systems"
-        hook = f'I noticed that {company} recently shared: "{quote[:160]}"' if quote else f"I have been following {company}'s recent announcements"
+        language = str(payload.get("language") or "EN").upper()
+        t = OUTREACH_TEMPLATES.get(language, OUTREACH_TEMPLATES["EN"])
+        service = SERVICE_NAMES_BY_LANGUAGE.get(language, {}).get(payload["service"], payload["service"])
+        # The configured value proposition is written in English; other languages use their own sentence.
+        vp = (payload.get("value_proposition") if language == "EN" else None) or t["vp"].format(service=service)
+        hook = t["hook_quote"].format(company=company, quote=quote[:160]) if quote else t["hook"].format(company=company)
         channel = payload.get("channel", "email")
         if channel == "linkedin":
-            body = f"{hook[:170]}. We help teams like yours with {service}. Open to a short chat?"
-            return {"subject": f"{service} at {company}", "body": body[:300], "signals_used": [sig.get("question", "")]}, Usage()
-        body = (
-            f"Hello,\n\n{hook}.\n\n{vp}\n\n"
-            f"Would a 20-minute conversation in the next two weeks be useful to compare notes?\n\nBest regards,\nOrange Systems"
-        )
-        subject = f"{service} for {company}" if channel == "email" else f"Following up: {service} at {company}"
+            body = t["linkedin"].format(hook=hook[:170], service=service)
+            subject = t["subject_linkedin"].format(service=service, company=company)
+            return {"subject": subject[:1].upper() + subject[1:], "body": body[:300],
+                    "signals_used": [sig.get("question", "")]}, Usage()
+        body = t["body"].format(hook=hook, vp=vp)
+        subject = (t["subject_email"] if channel == "email" else t["subject_followup"]).format(service=service, company=company)
+        subject = subject[:1].upper() + subject[1:]
         return {"subject": subject, "body": body, "signals_used": [sig.get("question", "")]}, Usage()
+
+
+# Offline outreach templates per language (the Anthropic backend writes the language itself).
+OUTREACH_TEMPLATES: dict[str, dict[str, str]] = {
+    "EN": {
+        "hook_quote": 'I noticed that {company} recently shared: "{quote}"', "hook": "I have been following {company}'s recent announcements",
+        "vp": "{service} delivered by Orange Systems",
+        "body": "Hello,\n\n{hook}.\n\n{vp}\n\nWould a 20-minute conversation in the next two weeks be useful to compare notes?\n\nBest regards,\nOrange Systems",
+        "linkedin": "{hook}. We help teams like yours with {service}. Open to a short chat?",
+        "subject_email": "{service} for {company}", "subject_followup": "Following up: {service} at {company}", "subject_linkedin": "{service} at {company}",
+    },
+    "RO": {
+        "hook_quote": "Am văzut recent în presă despre {company}: „{quote}”", "hook": "Urmăresc anunțurile recente ale {company}",
+        "vp": "Orange Systems ajută companii ca a dumneavoastră cu {service}, de la analiză până la implementare și suport.",
+        "body": "Bună ziua,\n\n{hook}.\n\n{vp}\n\nAr fi utilă o discuție de 20 de minute în următoarele două săptămâni?\n\nCu stimă,\nOrange Systems",
+        "linkedin": "{hook}. Ajutăm echipe ca a dumneavoastră cu {service}. Sunteți deschis(ă) unei scurte discuții?",
+        "subject_email": "{service} pentru {company}", "subject_followup": "Revin: {service} la {company}", "subject_linkedin": "{service} la {company}",
+    },
+    "DE": {
+        "hook_quote": "Ich habe kürzlich über {company} gelesen: „{quote}“", "hook": "Ich verfolge die jüngsten Ankündigungen von {company}",
+        "vp": "Orange Systems unterstützt Unternehmen wie Ihres bei {service}, von der Analyse bis zu Umsetzung und Betrieb.",
+        "body": "Guten Tag,\n\n{hook}.\n\n{vp}\n\nWäre ein 20-minütiges Gespräch in den nächsten zwei Wochen hilfreich?\n\nMit freundlichen Grüßen\nOrange Systems",
+        "linkedin": "{hook}. Wir unterstützen Teams wie Ihres bei {service}. Offen für ein kurzes Gespräch?",
+        "subject_email": "{service} für {company}", "subject_followup": "Nachfrage: {service} bei {company}", "subject_linkedin": "{service} bei {company}",
+    },
+}
+SERVICE_NAMES_BY_LANGUAGE: dict[str, dict[str, str]] = {
+    "RO": {"Agentic Process Automation": "automatizarea proceselor cu agenți AI", "Cybersecurity Services": "securitate cibernetică",
+           "Cloud & Infrastructure": "cloud și infrastructură", "Data & AI (BI)": "date și AI (BI)",
+           "ERP / CRM & Integration": "ERP / CRM și integrare", "IoT & Telecom": "IoT și telecomunicații"},
+    "DE": {"Agentic Process Automation": "Prozessautomatisierung mit KI-Agenten", "Cybersecurity Services": "Cybersicherheit",
+           "Cloud & Infrastructure": "Cloud und Infrastruktur", "Data & AI (BI)": "Daten und KI (BI)",
+           "ERP / CRM & Integration": "ERP / CRM und Integration", "IoT & Telecom": "IoT und Telekommunikation"},
+}
 
 
 async def _no_extraction(self, texts):

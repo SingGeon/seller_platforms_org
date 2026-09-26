@@ -28,6 +28,7 @@ from ..schemas import (
 )
 from ..scoring import signal_date_from_evidence
 from ..scoring_service import recompute_scores
+from ..auth import admin_guard
 from .deps import company_or_404, get_db, get_or_404, mongo_or_404, resolve_service
 
 router = APIRouter()
@@ -161,7 +162,7 @@ def list_companies(q: str | None = None):
     return mongo.find(mongo.COMPANIES, query, sort=[("name", 1)])
 
 
-@router.post("/companies", response_model=CompanyOut, status_code=201, tags=["companies"])
+@router.post("/companies", response_model=CompanyOut, status_code=201, tags=["companies"], dependencies=[Depends(admin_guard)])
 def create_company(body: CompanyIn, db: Session = Depends(get_db)):
     data = body.model_dump()
     data["country"] = data["country"].upper() if data["country"] else None
@@ -180,7 +181,7 @@ IMPORT_ALIASES = {
 }
 
 
-@router.post("/companies/import", tags=["companies"], summary="Import companies from CSV (Crunchbase export or name,domain,industry,... columns)")
+@router.post("/companies/import", tags=["companies"], summary="Import companies from CSV (Crunchbase export or name,domain,industry,... columns)", dependencies=[Depends(admin_guard)])
 async def import_companies(file: UploadFile, db: Session = Depends(get_db)):
     text = (await file.read()).decode("utf-8-sig")
     created, skipped = 0, 0
@@ -254,7 +255,7 @@ def company_detail(company_id: int, db: Session = Depends(get_db)):
     )
 
 
-@router.put("/companies/{company_id}", response_model=CompanyOut, tags=["companies"])
+@router.put("/companies/{company_id}", response_model=CompanyOut, tags=["companies"], dependencies=[Depends(admin_guard)])
 def update_company(company_id: int, body: CompanyIn, db: Session = Depends(get_db)):
     company_or_404(company_id)
     data = body.model_dump()
@@ -266,7 +267,7 @@ def update_company(company_id: int, body: CompanyIn, db: Session = Depends(get_d
     return mongo.get(mongo.COMPANIES, company_id)
 
 
-@router.delete("/companies/{company_id}", status_code=204, tags=["companies"])
+@router.delete("/companies/{company_id}", status_code=204, tags=["companies"], dependencies=[Depends(admin_guard)])
 def delete_company(company_id: int, db: Session = Depends(get_db)):
     company_or_404(company_id)
     mongo.delete_company(company_id)
@@ -387,7 +388,7 @@ async def send_to_hubspot(lead_ids: list[int], db: Session = Depends(get_db)):
 
 
 # ------------------------------------------------------------------ runs
-@router.post("/runs", response_model=RunOut, status_code=202, tags=["runs"])
+@router.post("/runs", response_model=RunOut, status_code=202, tags=["runs"], dependencies=[Depends(admin_guard)])
 async def start_run(body: RunIn, request: Request):
     active = mongo.active_run()
     if active is not None:
