@@ -1,5 +1,5 @@
-import { ArrowDown, Download, Kanban, Plus, Search } from 'lucide-react'
-import { useMemo } from 'react'
+import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, Plus, Search } from 'lucide-react'
+import { useMemo, useRef } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { STAGES, getCompanies, getServices, isNew, timeAgo, topSignal } from '../data/api'
 import type { Company, ServiceId } from '../data/types'
@@ -10,26 +10,82 @@ export const bestService = (c: Company) =>
 
 type SortKey = 'score' | 'updated' | 'name'
 
+const PAGE_SIZES = [25, 50, 100]
+
+/** Markets offered in the country filter even before a company from them is loaded (ISO 3166-1 alpha-2). */
+const MARKETS = [
+  'RO', 'MD', 'UA', 'BG', 'HU', 'PL', 'CZ', 'SK', 'AT', 'DE', 'CH', 'NL', 'BE', 'LU', 'FR', 'IT', 'ES', 'PT', 'GB', 'IE',
+  'DK', 'SE', 'NO', 'FI', 'EE', 'LV', 'LT', 'SI', 'HR', 'RS', 'GR', 'CY', 'MT', 'TR', 'IL', 'AE', 'US', 'CA',
+]
+
+const regionName = (() => {
+  try {
+    const names = new Intl.DisplayNames(['ro'], { type: 'region' })
+    return (code: string) => names.of(code) ?? code
+  } catch {
+    return (code: string) => code
+  }
+})()
+
+/** Page numbers around the current page, with gaps: 1 … 4 5 6 … 39. */
+function pageList(current: number, total: number): (number | null)[] {
+  const keep = new Set([1, total, current - 1, current, current + 1].filter((n) => n >= 1 && n <= total))
+  const out: (number | null)[] = []
+  let prev = 0
+  for (const n of [...keep].sort((a, b) => a - b)) {
+    if (n - prev === 2) out.push(n - 1)
+    else if (n - prev > 2) out.push(null)
+    out.push(n)
+    prev = n
+  }
+  return out
+}
+
 export default function Leads() {
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
   const q = params.get('q') ?? ''
   const svc = params.get('svc') ?? ''
   const country = params.get('country') ?? ''
+  const industry = params.get('ind') ?? ''
   const stage = params.get('stage') ?? ''
   const onlyNew = params.get('new') === '1'
   const showDisq = params.get('disq') === '1'
   const sort = (params.get('sort') as SortKey) ?? 'score'
+  const size = PAGE_SIZES.includes(Number(params.get('size'))) ? Number(params.get('size')) : PAGE_SIZES[0]
+  const tableTop = useRef<HTMLDivElement>(null)
 
+  /** Any filter or sort change starts again from page 1. */
   const set = (key: string, value: string) => {
     const next = new URLSearchParams(params)
     if (value) next.set(key, value)
     else next.delete(key)
+    if (key !== 'page') next.delete('page')
     setParams(next, { replace: true })
   }
 
   const all = getCompanies()
-  const countries = [...new Map(all.map((c) => [c.country, c.countryName])).entries()]
+
+  const countries = useMemo(() => {
+    const counts = new Map<string, { name: string; n: number }>()
+    for (const c of all) {
+      if (!c.country) continue
+      const hit = counts.get(c.country)
+      if (hit) hit.n++
+      else counts.set(c.country, { name: c.countryName && c.countryName !== '—' ? c.countryName : regionName(c.country), n: 1 })
+    }
+    const withLeads = [...counts.entries()].sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name, 'ro'))
+    const others = MARKETS.filter((code) => !counts.has(code))
+      .map((code) => [code, regionName(code)] as const)
+      .sort((a, b) => a[1].localeCompare(b[1], 'ro'))
+    return { withLeads, others }
+  }, [all])
+
+  const industries = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const c of all) if (c.industry && c.industry !== '—') counts.set(c.industry, (counts.get(c.industry) ?? 0) + 1)
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ro'))
+  }, [all])
 
   const rows = useMemo(() => {
     const needle = q.toLowerCase()
@@ -38,15 +94,25 @@ export default function Leads() {
       .filter((c) => !needle || [c.name, c.domain, c.industry].some((f) => f.toLowerCase().includes(needle)))
       .filter((c) => !svc || bestService(c) === svc)
       .filter((c) => !country || c.country === country)
+      .filter((c) => !industry || c.industry === industry)
       .filter((c) => !stage || c.stage === stage)
       .filter((c) => !onlyNew || isNew(c))
       .sort((a, b) =>
         sort === 'name' ? a.name.localeCompare(b.name) : sort === 'updated' ? b.updatedAt.localeCompare(a.updatedAt) : b.score - a.score,
       )
-  }, [all, q, svc, country, stage, onlyNew, showDisq, sort])
+  }, [all, q, svc, country, industry, stage, onlyNew, showDisq, sort])
 
   const hot = rows.filter((c) => c.score >= 75).length
-  const filtersOn = q || svc || country || stage || onlyNew
+  const filtersOn = q || svc || country || industry || stage || onlyNew
+
+  const pages = Math.max(1, Math.ceil(rows.length / size))
+  const page = Math.min(Math.max(1, Number(params.get('page')) || 1), pages)
+  const first = (page - 1) * size
+  const shown = rows.slice(first, first + size)
+  const goTo = (n: number) => {
+    set('page', n > 1 ? String(n) : '')
+    tableTop.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }
 
   const exportCsv = () => {
     const head = 'Companie,Domeniu,Industrie,Țară,Scor,Stadiu,Serviciu potrivit,Semnal principal'
@@ -116,13 +182,32 @@ export default function Leads() {
             </option>
           ))}
         </select>
-        <select value={country} onChange={(e) => set('country', e.target.value)} className="h-10" aria-label="Țară">
-          <option value="">Toate țările</option>
-          {countries.map(([code, name]) => (
-            <option key={code} value={code}>
-              {name}
+        <select value={industry} onChange={(e) => set('ind', e.target.value)} className="h-10 max-w-60" aria-label="Industrie">
+          <option value="">Toate industriile</option>
+          {industries.map(([name, n]) => (
+            <option key={name} value={name}>
+              {name} ({n})
             </option>
           ))}
+        </select>
+        <select value={country} onChange={(e) => set('country', e.target.value)} className="h-10 max-w-60" aria-label="Țară">
+          <option value="">Toate țările</option>
+          <optgroup label="Cu companii">
+            {countries.withLeads.map(([code, { name, n }]) => (
+              <option key={code} value={code}>
+                {name} ({n})
+              </option>
+            ))}
+          </optgroup>
+          {countries.others.length > 0 && (
+            <optgroup label="Alte piețe (încă fără companii)">
+              {countries.others.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </optgroup>
+          )}
         </select>
         <select value={stage} onChange={(e) => set('stage', e.target.value)} className="h-10" aria-label="Stadiu">
           <option value="">Toate stadiile</option>
@@ -147,7 +232,7 @@ export default function Leads() {
         )}
       </div>
 
-      <div className="overflow-x-auto border border-line bg-white">
+      <div ref={tableTop} className="scroll-mt-4 overflow-x-auto border border-line bg-white">
         <table className="w-full min-w-[1000px] border-collapse text-[14px]">
           <thead className="sticky top-0 border-b-2 border-ink bg-white text-[13px]">
             <tr>
@@ -161,7 +246,7 @@ export default function Leads() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((c) => {
+            {shown.map((c) => {
               const sig = topSignal(c)
               const disq = c.stage === 'descalificat'
               return (
@@ -221,13 +306,63 @@ export default function Leads() {
               <tr>
                 <td colSpan={7} className="px-4 py-16 text-center">
                   <p className="text-[18px] font-bold">Niciun lead pentru filtrele alese</p>
-                  <p className="mt-1 text-muted">Încearcă alt serviciu sau altă țară.</p>
+                  <p className="mt-1 text-muted">Încearcă alt serviciu, altă industrie sau altă țară.</p>
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {rows.length > 0 && (
+        <nav className="mt-4 flex flex-wrap items-center justify-between gap-4" aria-label="Paginare lead-uri">
+          <p className="text-[14px] text-muted">
+            <span className="num font-bold text-ink">
+              {first + 1}–{first + shown.length}
+            </span>{' '}
+            din <span className="num font-bold text-ink">{rows.length}</span>
+          </p>
+          {pages > 1 && (
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => goTo(page - 1)} disabled={page === 1} className={btn('secondary', 'sm')} aria-label="Pagina anterioară">
+                <ChevronLeft size={16} aria-hidden />
+              </button>
+              {pageList(page, pages).map((n, i) =>
+                n == null ? (
+                  <span key={`gap-${i}`} className="px-1 text-muted" aria-hidden>
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => goTo(n)}
+                    aria-current={n === page ? 'page' : undefined}
+                    className={`num h-8 min-w-8 border-2 px-2 text-[13px] font-bold transition-colors ${
+                      n === page ? 'border-ink bg-ink text-white' : 'border-transparent hover:border-orange hover:text-orange-ink'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ),
+              )}
+              <button type="button" onClick={() => goTo(page + 1)} disabled={page === pages} className={btn('secondary', 'sm')} aria-label="Pagina următoare">
+                <ChevronRight size={16} aria-hidden />
+              </button>
+            </div>
+          )}
+          <label className="flex items-center gap-2 text-[14px] text-muted">
+            Pe pagină
+            <select value={size} onChange={(e) => set('size', e.target.value === String(PAGE_SIZES[0]) ? '' : e.target.value)} className="h-8 text-[13px] text-ink">
+              {PAGE_SIZES.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
+        </nav>
+      )}
     </div>
   )
 }
