@@ -1,13 +1,40 @@
-import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, Search } from 'lucide-react'
-import { useMemo, useRef } from 'react'
+import { ArrowDown, ChevronLeft, ChevronRight, Download, Kanban, ListFilter, Search } from 'lucide-react'
+import { type FormEvent, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { STAGES, bestService, getCompanies, getServices, isNew, signalHeadline, timeAgo, topSignal, useDataVersion } from '../data/api'
 import { OTHER_INDUSTRY, industryGroup } from '../data/industry'
+import MultiSelect from '../components/MultiSelect'
 import { Avatar, Button, NewBadge, PageHeader, ScoreDelta, ScoreMeter, ServiceTag, SourceIcon, StageTag, btn } from '../components/ui'
 
 type SortKey = 'score' | 'updated' | 'name'
 
 const PAGE_SIZES = [25, 50, 100]
+
+// Filters live in the URL (shareable, survive a refresh); lists are comma-separated, e.g. ?svc=cyber,cloud&country=RO,MD.
+const FILTER_KEYS = ['q', 'svc', 'ind', 'country', 'stage', 'new', 'disq'] as const
+
+interface Filters {
+  q: string
+  svc: string[]
+  ind: string[]
+  country: string[]
+  stage: string[]
+  onlyNew: boolean
+  showDisq: boolean
+}
+
+function readFilters(params: URLSearchParams): Filters {
+  const list = (k: string) => (params.get(k) ?? '').split(',').filter(Boolean)
+  return {
+    q: params.get('q') ?? '', svc: list('svc'), ind: list('ind'), country: list('country'), stage: list('stage'),
+    onlyNew: params.get('new') === '1', showDisq: params.get('disq') === '1',
+  }
+}
+
+const sameFilters = (a: Filters, b: Filters) => {
+  const norm = (f: Filters) => JSON.stringify({ ...f, q: f.q.trim(), svc: [...f.svc].sort(), ind: [...f.ind].sort(), country: [...f.country].sort(), stage: [...f.stage].sort() })
+  return norm(a) === norm(b)
+}
 
 const regionName = (() => {
   try {
@@ -36,13 +63,18 @@ export default function Leads() {
   useDataVersion()
   const [params, setParams] = useSearchParams()
   const navigate = useNavigate()
-  const q = params.get('q') ?? ''
-  const svc = params.get('svc') ?? ''
-  const country = params.get('country') ?? ''
-  const industry = params.get('ind') ?? ''
-  const stage = params.get('stage') ?? ''
-  const onlyNew = params.get('new') === '1'
-  const showDisq = params.get('disq') === '1'
+  const applied = readFilters(params)
+  const { q, svc, ind: industry, country, stage, onlyNew, showDisq } = applied
+  // What the user is ticking; the list changes only on "Aplică filtrele" (or Enter in the search box).
+  const [draft, setDraft] = useState<Filters>(applied)
+  // Filters can also change from outside (header search, links from Acasă): start the draft again from them.
+  const appliedKey = FILTER_KEYS.map((k) => params.get(k) ?? '').join('|')
+  const [syncedKey, setSyncedKey] = useState(appliedKey)
+  if (syncedKey !== appliedKey) {
+    setSyncedKey(appliedKey)
+    setDraft(applied)
+  }
+  const dirty = !sameFilters(draft, applied)
   const sort = (params.get('sort') as SortKey) ?? 'score'
   const size = PAGE_SIZES.includes(Number(params.get('size'))) ? Number(params.get('size')) : PAGE_SIZES[0]
   const tableTop = useRef<HTMLDivElement>(null)
@@ -55,6 +87,25 @@ export default function Leads() {
     if (key !== 'page') next.delete('page')
     setParams(next, { replace: true })
   }
+
+  const writeFilters = (f: Filters) => {
+    const next = new URLSearchParams(params)
+    for (const k of FILTER_KEYS) next.delete(k)
+    next.delete('page')
+    if (f.q.trim()) next.set('q', f.q.trim())
+    if (f.svc.length) next.set('svc', f.svc.join(','))
+    if (f.ind.length) next.set('ind', f.ind.join(','))
+    if (f.country.length) next.set('country', f.country.join(','))
+    if (f.stage.length) next.set('stage', f.stage.join(','))
+    if (f.onlyNew) next.set('new', '1')
+    if (f.showDisq) next.set('disq', '1')
+    setParams(next, { replace: true })
+  }
+  const applyFilters = (e?: FormEvent) => {
+    e?.preventDefault()
+    writeFilters(draft)
+  }
+  const resetFilters = () => writeFilters({ q: '', svc: [], ind: [], country: [], stage: [], onlyNew: false, showDisq: false })
 
   const all = getCompanies()
 
@@ -82,20 +133,22 @@ export default function Leads() {
   const rows = useMemo(() => {
     const needle = q.toLowerCase()
     return all
-      .filter((c) => showDisq || stage === 'descalificat' || c.stage !== 'descalificat')
+      .filter((c) => showDisq || stage.includes('descalificat') || c.stage !== 'descalificat')
       .filter((c) => !needle || [c.name, c.domain, c.industry].some((f) => f.toLowerCase().includes(needle)))
-      .filter((c) => !svc || bestService(c) === svc)
-      .filter((c) => !country || c.country === country)
-      .filter((c) => !industry || industryGroup(c.industry) === industry)
-      .filter((c) => !stage || c.stage === stage)
+      .filter((c) => !svc.length || svc.includes(bestService(c) ?? ''))
+      .filter((c) => !country.length || country.includes(c.country))
+      .filter((c) => !industry.length || industry.includes(industryGroup(c.industry) ?? ''))
+      .filter((c) => !stage.length || stage.includes(c.stage))
       .filter((c) => !onlyNew || isNew(c))
       .sort((a, b) =>
         sort === 'name' ? a.name.localeCompare(b.name) : sort === 'updated' ? b.updatedAt.localeCompare(a.updatedAt) : b.score - a.score,
       )
-  }, [all, q, svc, country, industry, stage, onlyNew, showDisq, sort])
+    // appliedKey stands for every filter value read from the URL.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, appliedKey, sort])
 
   const hot = rows.filter((c) => c.score >= 75).length
-  const filtersOn = q || svc || country || industry || stage || onlyNew
+  const filtersOn = !sameFilters(applied, { q: '', svc: [], ind: [], country: [], stage: [], onlyNew: false, showDisq: false })
 
   const pages = Math.max(1, Math.ceil(rows.length / size))
   const page = Math.min(Math.max(1, Number(params.get('page')) || 1), pages)
@@ -152,63 +205,77 @@ export default function Leads() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-3 bg-band p-3">
-        <div className="relative min-w-60 flex-1">
-          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
-          <input
-            value={q}
-            onChange={(e) => set('q', e.target.value)}
-            placeholder="Filtrează după nume, domeniu, industrie"
-            aria-label="Filtrează lead-urile"
-            className="h-10 w-full pl-9"
+      <form onSubmit={applyFilters} className="mb-4 bg-band p-3" role="search" aria-label="Filtre lead-uri">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-60 flex-1">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+            <input
+              value={draft.q}
+              onChange={(e) => setDraft({ ...draft, q: e.target.value })}
+              placeholder="Caută după nume, domeniu sau industrie"
+              aria-label="Caută în lead-uri"
+              className="h-10 w-full pl-9"
+            />
+          </div>
+          <MultiSelect
+            label="Serviciu"
+            allLabel="Toate serviciile"
+            noun="servicii"
+            className="w-52"
+            options={getServices().map((s) => ({ value: s.id, label: s.name }))}
+            value={draft.svc}
+            onChange={(v) => setDraft({ ...draft, svc: v })}
+          />
+          <MultiSelect
+            label="Industrie"
+            allLabel="Toate industriile"
+            noun="industrii"
+            className="w-52"
+            options={industries.map(([name, n]) => ({ value: name, label: name, count: n }))}
+            value={draft.ind}
+            onChange={(v) => setDraft({ ...draft, ind: v })}
+          />
+          <MultiSelect
+            label="Țară"
+            allLabel="Toate țările"
+            noun="țări"
+            className="w-52"
+            options={countries.map(([code, { name, n }]) => ({ value: code, label: name, count: n }))}
+            value={draft.country}
+            onChange={(v) => setDraft({ ...draft, country: v })}
+          />
+          <MultiSelect
+            label="Stadiu"
+            allLabel="Toate stadiile"
+            noun="stadii"
+            className="w-44"
+            options={STAGES.map((s) => ({ value: s.id, label: s.label }))}
+            value={draft.stage}
+            onChange={(v) => setDraft({ ...draft, stage: v })}
           />
         </div>
-        <select value={svc} onChange={(e) => set('svc', e.target.value)} className="h-10" aria-label="Serviciu">
-          <option value="">Toate serviciile</option>
-          {getServices().map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-        <select value={industry} onChange={(e) => set('ind', e.target.value)} className="h-10 max-w-60" aria-label="Industrie">
-          <option value="">Toate industriile</option>
-          {industries.map(([name, n]) => (
-            <option key={name} value={name}>
-              {name} ({n})
-            </option>
-          ))}
-        </select>
-        <select value={country} onChange={(e) => set('country', e.target.value)} className="h-10 max-w-60" aria-label="Țară">
-          <option value="">Toate țările</option>
-          {countries.map(([code, { name, n }]) => (
-            <option key={code} value={code}>
-              {name} ({n})
-            </option>
-          ))}
-        </select>
-        <select value={stage} onChange={(e) => set('stage', e.target.value)} className="h-10" aria-label="Stadiu">
-          <option value="">Toate stadiile</option>
-          {STAGES.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.label}
-            </option>
-          ))}
-        </select>
-        <label className="flex h-10 cursor-pointer items-center gap-2 border-2 border-line bg-white px-3 font-bold">
-          <input type="checkbox" checked={onlyNew} onChange={(e) => set('new', e.target.checked ? '1' : '')} className="size-4 accent-orange" />
-          Doar noi (72h)
-        </label>
-        <label className="flex h-10 cursor-pointer items-center gap-2 px-1 text-muted">
-          <input type="checkbox" checked={showDisq} onChange={(e) => set('disq', e.target.checked ? '1' : '')} className="size-4 accent-orange" />
-          Arată descalificați
-        </label>
-        {filtersOn && (
-          <button type="button" onClick={() => setParams({}, { replace: true })} className="ml-auto font-bold underline underline-offset-4 hover:text-orange-ink">
-            Resetează filtrele
-          </button>
-        )}
-      </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <label className="flex h-10 cursor-pointer items-center gap-2 border-2 border-line bg-white px-3 font-bold">
+            <input type="checkbox" checked={draft.onlyNew} onChange={(e) => setDraft({ ...draft, onlyNew: e.target.checked })} className="size-4 accent-orange" />
+            Doar noi (72h)
+          </label>
+          <label className="flex h-10 cursor-pointer items-center gap-2 px-1 text-muted">
+            <input type="checkbox" checked={draft.showDisq} onChange={(e) => setDraft({ ...draft, showDisq: e.target.checked })} className="size-4 accent-orange" />
+            Arată descalificați
+          </label>
+          <div className="ml-auto flex items-center gap-4">
+            {dirty && <span className="text-[13px] font-bold text-orange-ink">Ai modificări neaplicate</span>}
+            {(filtersOn || dirty) && (
+              <button type="button" onClick={resetFilters} className="font-bold underline underline-offset-4 hover:text-orange-ink">
+                Resetează
+              </button>
+            )}
+            <Button type="submit" variant="primary" disabled={!dirty}>
+              <ListFilter size={16} aria-hidden /> Aplică filtrele
+            </Button>
+          </div>
+        </div>
+      </form>
 
       <div ref={tableTop} className="scroll-mt-4 overflow-x-auto border border-line bg-white">
         <table className="w-full min-w-[1000px] border-collapse text-[14px]">
