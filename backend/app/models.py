@@ -102,6 +102,8 @@ class ScoringConfig(Base):
     undated_recency: Mapped[float] = mapped_column(Float, default=0.5)
     # Markets that discovery sources search (ISO-2); "change the country" = edit this list.
     discovery_countries: Mapped[list] = mapped_column(JSONType, default=lambda: ["RO", "MD"])
+    # Deal estimate assumptions changed by the admin, over app/deal_value.py DEFAULT_DEAL_MODEL (None = defaults).
+    deal_model: Mapped[dict | None] = mapped_column(JSONType, nullable=True, default=None)
 
 
 class SourceState(Base):

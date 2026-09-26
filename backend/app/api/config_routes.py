@@ -11,7 +11,8 @@ from ..schemas import (
     IcpIn, IcpOut, QuestionIn, QuestionOut, RuleIn, RuleOut, ScoringConfigIn, ScoringConfigOut, ServiceIn, ServiceOut,
 )
 from ..scoring.rules import RULE_FIELDS
-from ..scoring_service import get_scoring_config, recompute_scores
+from ..deal_value import merged_model
+from ..scoring_service import deal_model, get_scoring_config, recompute_scores
 from ..auth import admin_guard
 from .deps import get_db, get_or_404
 
@@ -235,6 +236,32 @@ def update_scoring_config(body: ScoringConfigIn, db: Session = Depends(get_db)):
     db.commit()
     recompute_scores(db)
     return cfg
+
+
+@router.get("/deal-model", tags=["config"], summary="Assumptions of the deal value / cost / profit estimate")
+def read_deal_model(db: Session = Depends(get_db)):
+    model = deal_model(db)
+    db.commit()
+    return model
+
+
+@router.put("/deal-model", tags=["config"], dependencies=[Depends(admin_guard)],
+            summary="Change deal estimate assumptions (only the keys sent; {} restores the defaults)")
+def update_deal_model(body: dict, db: Session = Depends(get_db)):
+    cfg = get_scoring_config(db)
+    stored = {**(cfg.deal_model or {}), **body} if body else None
+    try:
+        model = merged_model(stored)
+        for slug, svc in model["services"].items():
+            if not 0 <= float(svc["gross_margin"]) < 1 or float(svc["base_value"]) < 0:
+                raise ValueError(f"service {slug}: gross_margin must be 0..1 and base_value >= 0")
+        if any(not 0 <= float(p) <= 1 for p in model["win_probability"].values()):
+            raise ValueError("win_probability values must be 0..1")
+    except (TypeError, KeyError, ValueError, AttributeError) as exc:
+        raise HTTPException(422, str(exc)) from exc
+    cfg.deal_model = stored
+    db.commit()
+    return model
 
 
 @router.post("/scores/recompute", tags=["config"], dependencies=[Depends(admin_guard)])

@@ -214,6 +214,9 @@ class LeadOut(BaseModel):
     score_changed_at: datetime | None = None
     origin: str = "manual"
     discovered_via: list[dict] = Field(default_factory=list)
+    # deal estimate (app/deal_value.py): first-year value for Orange, and the profit weighted by the tier's win chance
+    deal_value: int | None = None
+    expected_profit: int | None = None
 
 
 class LeadDetail(ORM):
@@ -228,6 +231,7 @@ class LeadDetail(ORM):
     breakdown: dict
     explanation: dict
     computed_at: datetime
+    deal: dict | None = None  # value, cost, profit (with a low-high range), win probability and the assumptions
 
 
 class CompanyDetail(BaseModel):

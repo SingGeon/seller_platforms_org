@@ -29,6 +29,13 @@ def get_scoring_config(db: Session) -> ScoringConfig:
     return cfg
 
 
+def deal_model(db: Session) -> dict:
+    """The deal estimate assumptions: defaults overridden by the admin's saved values."""
+    from .deal_value import merged_model
+
+    return merged_model(get_scoring_config(db).deal_model)
+
+
 def pick_latest(signals: list[MDoc]) -> tuple[dict[int, MDoc], dict[int, MDoc]]:
     """Latest signal per question and per llm_question rule (input sorted oldest first). Manual
     signals win over AI ones detected at the same time or later, because a rep validated them."""

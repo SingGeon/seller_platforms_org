@@ -81,7 +81,8 @@ CREATE TABLE scoring_config (
     weight_values jsonb NOT NULL,
     recency_buckets jsonb NOT NULL,
     undated_recency double precision NOT NULL,
-    discovery_countries jsonb DEFAULT '["RO", "MD"]'::jsonb NOT NULL
+    discovery_countries jsonb DEFAULT '["RO", "MD"]'::jsonb NOT NULL,
+    deal_model jsonb
 );
 
 CREATE SEQUENCE scoring_config_id_seq

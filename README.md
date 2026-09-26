@@ -63,6 +63,15 @@ whose news did not change is never re-asked; a "why now" summary is written for 
 an offline one is redone by the AI on a later run, never the other way round; outreach drafts are saved per lead, signals
 and options (`?fresh=true` asks for a new one) and the saved draft is returned while the AI is unavailable. Free tiers may use the prompts to improve their models: only public news is sent.
 
+**Deal estimate (value, cost, profit for Orange):** every lead carries `deal_value` and `expected_profit` (`/leads`),
+and the company page carries the full estimate per service (`scores[].deal`): first-year project value with a
+low-high range, delivery cost, gross profit, win probability of the tier and the assumptions used
+(`backend/app/deal_value.py`). Value = service base value x company size (employees, sub-linear) x market price level
+(DE/AT = 1, RO 0.6, MD 0.45); cost and profit come from the service's gross margin (22-35%, systems integrators
+average 20%, professional services projects 38%). The defaults are public benchmarks (ERP, MDR, RPA pricing; IT
+rates by country), listed in `GET /deal-model`; an admin changes any of them with `PUT /deal-model`. Without a known
+headcount the size is guessed and the estimate is marked `confidence: low` with a wider range.
+
 **Offline mode:** without any AI key the pipeline uses a deterministic keyword backend. It never produces
 a false "yes", but it misses a lot. With `OFFLINE_COLLECT=true` nothing is fetched from the internet and only stored
 documents are analysed. `python -m app.seed --demo` loads 8 demo companies and sample documents paraphrasing the Annex 1

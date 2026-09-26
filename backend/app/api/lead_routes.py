@@ -27,7 +27,8 @@ from ..schemas import (
     ManualSignalIn, OutreachOut, RunIn, RunOut, SignalOut,
 )
 from ..scoring import signal_date_from_evidence
-from ..scoring_service import recompute_scores
+from ..deal_value import estimate_deal
+from ..scoring_service import deal_model, recompute_scores
 from ..auth import admin_guard
 from .deps import company_or_404, get_db, get_or_404, mongo_or_404, resolve_service
 
@@ -37,8 +38,9 @@ NEW_LEAD_HOURS = 24
 
 
 # ------------------------------------------------------------------ leads
-def _lead_out(lead: MDoc, company: MDoc, service: Service) -> LeadOut:
+def _lead_out(lead: MDoc, company: MDoc, service: Service, deal_model: dict | None = None) -> LeadOut:
     exp = lead.explanation or {}
+    deal = estimate_deal(company, service.slug, lead.tier, deal_model)
     top = (exp.get("top_signals") or [None])[0]
     return LeadOut(
         lead_id=lead.id, company_id=company.id, company=company.name, domain=company.domain, country=company.country,
@@ -50,6 +52,7 @@ def _lead_out(lead: MDoc, company: MDoc, service: Service) -> LeadOut:
         is_new=_aware(company.created_at) >= datetime.now(timezone.utc) - timedelta(hours=NEW_LEAD_HOURS),
         previous_score=lead.previous_score, score_changed_at=lead.score_changed_at,
         origin=company.origin or "manual", discovered_via=(company.discovered_via or [])[-3:],
+        deal_value=deal["value"], expected_profit=deal["expected_profit"],
     )
 
 
@@ -97,7 +100,8 @@ def list_leads(
         cq["industry"] = {"$regex": re.escape(industry), "$options": "i"}
     if origin:
         cq["origin"] = origin
-    rows = [_lead_out(l, c, s) for l, c, s in _joined(db, lq, cq)]
+    model = deal_model(db)
+    rows = [_lead_out(l, c, s, model) for l, c, s in _joined(db, lq, cq)]
     if changed_since_hours:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=changed_since_hours)
         rows = [r for r in rows if r.is_new or (r.score_changed_at and _aware(r.score_changed_at) >= cutoff)]
@@ -229,11 +233,13 @@ def company_detail(company_id: int, db: Session = Depends(get_db)):
     company = company_or_404(company_id)
     services = {s.id: s for s in db.scalars(select(Service))}
     leads = [(l, services[l.service_id]) for l in mongo.find(mongo.LEAD_SCORES, {"company_id": company_id}) if l.service_id in services]
+    model = deal_model(db)
     scores = [
         LeadDetail(
             service_id=s.id, service=s.name, icp_score=l.icp_score, signal_score=l.signal_score, final_score=l.final_score,
             tier=l.tier, disqualified=l.disqualified, disqualification_reasons=l.disqualification_reasons or [],
             breakdown=l.breakdown or {}, explanation=l.explanation or {}, computed_at=l.computed_at,
+            deal=estimate_deal(company, s.slug, l.tier, model),
         )
         for l, s in leads
     ]
