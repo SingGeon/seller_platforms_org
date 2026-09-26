@@ -429,6 +429,9 @@ def main() -> None:
     parser.add_argument("--demo", action="store_true", help="add the 8 demo companies and the Annex 1 sample documents")
     parser.add_argument("--sample-docs", action="store_true", help="same as --demo (kept for older instructions)")
     parser.add_argument("--remove-demo", action="store_true", help="delete the demo companies and sample documents")
+    parser.add_argument("--no-rescore", action="store_true",
+                        help="only write the configuration; skip re-scoring every company (a later analysis run scores them). "
+                             "On a remote database a long re-score keeps an idle transaction open, which Neon terminates")
     args = parser.parse_args()
     from .db import SessionLocal
 
@@ -439,7 +442,9 @@ def main() -> None:
         elif args.demo or args.sample_docs:
             seed_companies()
             print(f"sample documents added: {seed_sample_documents()}")
-        recompute_scores(db)
+        db.commit()
+        if not args.no_rescore:
+            recompute_scores(db)
     print("seed complete")
 
 

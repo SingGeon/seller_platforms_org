@@ -52,7 +52,8 @@ jobs:
           { echo "DATABASE_URL=$pg"; echo "MONGO_URI=$mongo"; } >> "$GITHUB_ENV"
       - name: Add new services and questions from the seed (existing ones stay as they are)
         working-directory: backend
-        run: python -m app.seed
+        # the next step analyses and re-scores every company, new services included
+        run: python -m app.seed --no-rescore
       - name: Refresh news, analyse and re-score
         working-directory: backend
         # --fresh-hours 20: a company that got news in yesterday's run is fetched again today (24 would skip it)
