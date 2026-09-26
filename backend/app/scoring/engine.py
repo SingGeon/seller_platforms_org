@@ -188,7 +188,14 @@ def score_lead(
                 "_value": value,
                 "_days": days,
             }
-    for item in best_event.values():
+    # One article can yield several event types (e.g. a leadership change that is also a corporate event): it counts
+    # once, with its strongest reading, so it is neither scored nor shown twice.
+    by_article: dict[str, dict] = {}
+    for key, item in best_event.items():
+        url = (item["evidence"][0].get("url") or key).lower().rstrip("/")
+        if url not in by_article or abs(item["_value"]) > abs(by_article[url]["_value"]):
+            by_article[url] = item
+    for item in by_article.values():
         raw += item["_value"]
         if item["_value"] > 0 and item["_days"] is not None:
             freshest = item["_days"] if freshest is None else min(freshest, item["_days"])

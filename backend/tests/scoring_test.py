@@ -106,3 +106,17 @@ def test_field_rule_operators():
     assert not evaluate_field_rule(r("not_in", "country", ["RU"]), c)
     assert evaluate_field_rule(r("contains", "industry", "logist"), c)
     assert not evaluate_field_rule(r("gt", "unknown_field", 1), c)
+
+
+def test_one_article_counts_once_even_when_it_yields_several_event_types():
+    service = NS(event_weights={"leadership_change": "Low", "corporate_event": "Low"})
+    url = "https://news.example/new-ceo"
+    both = [NS(event_type=t, polarity="positive", title="New CEO", summary="s", url=url, event_date=NOW - timedelta(days=3))
+            for t in ("leadership_change", "corporate_event")]
+    one = both[:1]
+    base = dict(company=company(), service=service, icp=icp(), questions=[q(1, "High")], signals_by_question={}, rules=[],
+                rule_signals={}, now=NOW)
+    res_both, res_one = score_lead(events=both, **base), score_lead(events=one, **base)
+    items = [i for i in res_both.breakdown["signals"]["items"] if i["kind"] == "event"]
+    assert len(items) == 1 and items[0]["evidence"][0]["url"] == url
+    assert res_both.signal_score == res_one.signal_score  # no double points
