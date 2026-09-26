@@ -31,6 +31,7 @@ def company_id(client, name):
 
 def test_health_and_seeded_config(client):
     assert client.get("/health").json()["status"] == "ok"
+    assert client.get("/health").json()["commit"] is None  # set on Render only
     services = client.get("/services").json()
     assert {s["slug"] for s in services} == SEEDED_SLUGS == {"apa", "cyber", "cloud", "data", "erp", "iot"}
     apa = next(s for s in services if s["slug"] == "apa")

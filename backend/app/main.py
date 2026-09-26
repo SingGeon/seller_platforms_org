@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -82,7 +83,9 @@ def create_app(session_factory: sessionmaker | None = None, llm_override=None, h
             db.execute(text("select 1"))
         mongo.db().command("ping")
         s = get_settings()
-        return {"status": "ok", "postgres": "ok", "mongodb": "ok", "llm": s.llm_provider or ("anthropic" if s.anthropic_api_key else "heuristic")}
+        return {"status": "ok", "postgres": "ok", "mongodb": "ok", "llm": s.llm_provider or ("anthropic" if s.anthropic_api_key else "heuristic"),
+                # the deployed commit (Render sets RENDER_GIT_COMMIT), to check that a push reached the cloud
+                "commit": os.environ.get("RENDER_GIT_COMMIT", "")[:7] or None}
 
     guarded = [Depends(auth_guard)]
     app.include_router(config_routes.router, dependencies=guarded)
