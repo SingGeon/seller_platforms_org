@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     newsapi_key: str = ""
     serpapi_key: str = ""
     hubspot_token: str = ""
+    # Decision-maker contacts (app/contacts.py): optional B2B data providers; without a key the source is skipped.
+    hunter_api_key: str = ""
+    apollo_api_key: str = ""
     # Discovery sources (GIG-14). Every key is optional; a source without its key is skipped.
     adzuna_app_id: str = ""
     adzuna_app_key: str = ""

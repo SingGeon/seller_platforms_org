@@ -1,11 +1,12 @@
-import { ChevronRight, Copy, ExternalLink, Globe, Hand, RefreshCw, Send, Sparkles, UserSearch } from 'lucide-react'
+import { ChevronRight, Copy, ExternalLink, Globe, Hand, Mail, RefreshCw, Send, Sparkles, UserSearch } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { friendlyError, useSession } from '../auth/session'
+import ContactsTab, { LEVEL_RO } from '../components/ContactsTab'
 import DealPanel from '../components/DealPanel'
 import { STAGES, getCompany, inPipeline, stageChange, getQuestions, getServices, isNew, patchCompany, signalHeadline, timeAgo, useDataVersion } from '../data/api'
 import { describe } from '../data/team'
-import { type Activity, type Note, type Outreach, addNote, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
+import { type Activity, type Contact, type Note, type Outreach, addNote, listContacts, markMessageSent, generateOutreach, getActivity, getAssignment, saveAssignment, sendToHubspot } from '../data/backend'
 import { listSellers, type Seller } from '../data/client'
 import type { Company as CompanyT, Signal, Stage } from '../data/types'
 import {
@@ -143,7 +144,79 @@ function Notes({ companyId, notes, onChange }: { companyId: string; notes: Note[
   )
 }
 
-function Message({ c }: { c: CompanyT }) {
+function SendTo({ draft, contacts, companyName, onSent, onFindContacts }: {
+  draft: Outreach
+  contacts: Contact[] | null
+  companyName: string
+  onSent: (text: string) => void
+  onFindContacts: () => void
+}) {
+  // Only people who can be contacted, and only through a channel they really have.
+  const reachable = (contacts ?? []).filter((x) => !x.do_not_contact && (x.email || x.linkedin))
+  const [to, setTo] = useState<number | ''>(reachable[0]?.id ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const person = reachable.find((x) => x.id === to)
+  const text = `${draft.subject ? `${draft.subject}\n\n` : ''}${draft.body}`
+  const who = person?.name ?? person?.email ?? companyName
+
+  const record = (channel: 'email' | 'linkedin') =>
+    person &&
+    markMessageSent(person.id, channel)
+      .then(() => onSent(`Mesaj trimis ${channel === 'email' ? 'pe email' : 'pe LinkedIn'} către ${who}: apare în jurnalul lead-ului.`))
+      .catch((e: unknown) => setError(friendlyError(e)))
+
+  const byEmail = () => {
+    if (!person?.email) return
+    const url = `mailto:${person.email}?subject=${encodeURIComponent(draft.subject ?? '')}&body=${encodeURIComponent(draft.body)}`
+    window.location.assign(url)
+    void record('email')
+  }
+  const byLinkedIn = async () => {
+    if (!person?.linkedin) return
+    await navigator.clipboard?.writeText(text).catch(() => undefined)
+    window.open(person.linkedin, '_blank', 'noopener')
+    void record('linkedin')
+  }
+
+  if (!reachable.length)
+    return (
+      <p className="mt-4 bg-band px-4 py-3 text-[13px]">
+        Nu ai încă o persoană de contact cu email sau LinkedIn.{' '}
+        <button type="button" onClick={onFindContacts} className="font-bold underline underline-offset-4">
+          Caută contacte
+        </button>
+      </p>
+    )
+  return (
+    <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-line pt-4">
+      <label>
+        <span className="mb-1 block text-[13px] font-bold">Trimite către</span>
+        <select value={to} onChange={(e) => setTo(Number(e.target.value))} className="h-10 max-w-[360px]">
+          {reachable.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name ?? x.email}
+              {x.role ? ` · ${x.role}` : ` · ${LEVEL_RO[x.level]}`}
+            </option>
+          ))}
+        </select>
+      </label>
+      {person?.email && (
+        <Button variant="primary" onClick={byEmail} title={`Deschide emailul către ${person.email}, cu subiectul și textul completate`}>
+          <Mail size={16} aria-hidden /> Deschide în email
+        </Button>
+      )}
+      {person?.linkedin && (
+        <Button onClick={() => void byLinkedIn()} title="Copiază mesajul și deschide profilul LinkedIn; lipești și trimiți tu">
+          <Copy size={16} aria-hidden /> Copiază și deschide LinkedIn
+        </Button>
+      )}
+      {error && <p className="w-full text-[13px] font-bold text-danger" role="alert">{error}</p>}
+    </div>
+  )
+}
+
+function Message({ c, contacts, onFindContacts }: { c: CompanyT; contacts: Contact[] | null; onFindContacts: () => void }) {
+  const [sent, setSent] = useState<string | null>(null)
   const [channel, setChannel] = useState<'email' | 'linkedin' | 'followup'>('email')
   const [language, setLanguage] = useState<'RO' | 'EN' | 'DE'>('RO')
   const [draft, setDraft] = useState<Outreach | null>(null)
@@ -211,13 +284,15 @@ function Message({ c }: { c: CompanyT }) {
               <Copy size={14} aria-hidden /> Copiază
             </Button>
           </div>
+          <SendTo draft={draft} contacts={contacts} companyName={c.name} onSent={setSent} onFindContacts={onFindContacts} />
+          {sent && <p className="mt-3 text-[13px] font-bold text-ok" role="status">{sent}</p>}
         </div>
       )}
     </div>
   )
 }
 
-type Tab = 'signals' | 'timeline' | 'notes' | 'message'
+type Tab = 'signals' | 'timeline' | 'notes' | 'contacts' | 'message'
 
 export default function Company() {
   const { id = '' } = useParams()
@@ -242,6 +317,7 @@ export default function Company() {
   const [sellers, setSellers] = useState<Seller[]>([])
   const [notes, setNotes] = useState<Note[]>([])
   const [activity, setActivity] = useState<Activity[]>([])
+  const [contacts, setContacts] = useState<Contact[] | null>(null)
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null)
 
   const cid = c?.id
@@ -250,6 +326,7 @@ export default function Company() {
     if (isAdmin) listSellers().then(setSellers).catch(() => setSellers([]))
     getAssignment(cid).then((a) => setNotes(a.notes)).catch(() => setNotes([]))
     getActivity(cid).then(setActivity).catch(() => setActivity([]))
+    listContacts(cid).then(setContacts).catch(() => setContacts([]))
   }, [cid, isAdmin])
 
   const fail = (err: unknown) => setStatus({ ok: false, text: friendlyError(err) })
@@ -328,6 +405,7 @@ export default function Company() {
     ['signals', `Semnale (${c.signals.length})`],
     ['timeline', 'Cronologie'],
     ['notes', `Note (${notes.length})`],
+    ['contacts', `Contacte${contacts?.length ? ` (${contacts.length})` : ''}`],
     ['message', 'Mesaj de contact'],
   ]
 
@@ -544,9 +622,10 @@ export default function Company() {
                   <Notes companyId={c.id} notes={notes} onChange={setNotes} />
                 </Panel>
               )}
+              {tab === 'contacts' && <ContactsTab companyId={c.id} companyName={c.name} contacts={contacts} onContacts={setContacts} />}
               {tab === 'message' && (
                 <Panel className="p-6">
-                  <Message c={c} />
+                  <Message c={c} contacts={contacts} onFindContacts={() => setTab('contacts')} />
                 </Panel>
               )}
             </div>

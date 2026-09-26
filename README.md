@@ -65,6 +65,17 @@ whose news did not change is never re-asked; a "why now" summary is written for 
 an offline one is redone by the AI on a later run, never the other way round; outreach drafts are saved per lead, signals
 and options (`?fresh=true` asks for a new one) and the saved draft is returned while the AI is unavailable. Free tiers may use the prompts to improve their models: only public news is sent.
 
+**Decision-maker contacts (`backend/app/contacts.py`):** `POST /companies/{id}/contacts/discover` looks for the people
+to send the contact message to, only where they are really published: the company's own site (home, contact, team /
+management / about, Impressum: e-mails on the company's domain, phone numbers, "Name / Role" lines exactly as written),
+leadership changes in its news, and, with a key, Hunter.io Domain Search (`HUNTER_API_KEY`: only addresses Hunter found
+on public pages) and Apollo.io people search (`APOLLO_API_KEY`: title and LinkedIn; an e-mail only when unlocked and
+verified). Nothing is generated: no guessed e-mail patterns. Every contact keeps its sources (URL, the exact line, date);
+sellers can add one by hand (marked with who added it) and mark "do not contact", which blocks sending. `GET
+/companies/{id}/contacts`, `POST /companies/{id}/contacts`, `PUT /contacts/{id}`, `DELETE /contacts/{id}` (admin, or the
+seller who added it), `POST /contacts/{id}/sent` (logged as "sent an e-mail / LinkedIn message to X"). Sites that block
+automated visits (403) or time out are reported per source; the other sources still count.
+
 **Deal estimate (value, cost, profit for Orange):** every lead carries `deal_value` and `expected_profit` (`/leads`),
 and the company page carries the full estimate per service (`scores[].deal`): first-year project value with a
 low-high range, delivery cost, gross profit, win probability of the tier and the assumptions used

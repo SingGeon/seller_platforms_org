@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 from . import mongo
-from .api import config_routes, lead_routes, seller_routes, source_routes
+from .api import config_routes, contact_routes, lead_routes, seller_routes, source_routes
 from .auth import auth_guard
 from .config import get_settings
 from .llm_factory import llm_name
@@ -19,7 +19,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 
 AUDIT_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 # logged explicitly, with details, by their routes (auth, lead stage / owner, notes)
-AUDIT_SKIP = {"/auth/login", "/auth/logout", "/companies/{company_id}/assignment", "/companies/{company_id}/notes"}
+# Routes that write their own, more detailed activity entry.
+AUDIT_SKIP = {
+    "/auth/login", "/auth/logout", "/companies/{company_id}/assignment", "/companies/{company_id}/notes",
+    "/contacts/{contact_id}", "/contacts/{contact_id}/sent",
+}
 
 
 def create_app(session_factory: sessionmaker | None = None, llm_override=None, http_override=None, auth_required: bool | None = None) -> FastAPI:
@@ -93,6 +97,7 @@ def create_app(session_factory: sessionmaker | None = None, llm_override=None, h
     app.include_router(config_routes.router, dependencies=guarded)
     app.include_router(lead_routes.router, dependencies=guarded)
     app.include_router(source_routes.router, dependencies=guarded)
+    app.include_router(contact_routes.router, dependencies=guarded)
     app.include_router(seller_routes.router)
     return app
 

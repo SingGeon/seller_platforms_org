@@ -42,6 +42,12 @@ const DETAILED: Record<string, (d: Record<string, unknown>) => { label: string; 
   seller_delete: (d) => ({ label: `A șters contul lui ${str(d.target) ?? 'un sales manager'}`, category: 'conturi' }),
   login_failed: (d) => ({ label: `Autentificare eșuată${str(d.email) ? ` pentru ${d.email}` : ''}`, category: 'acces', alert: true }),
   integrity_repair: () => ({ label: 'A reparat legăturile dintre baze de date', category: 'altele' }),
+  contact_message: (d) => ({
+    label: `A trimis un mesaj ${d.channel === 'linkedin' ? 'pe LinkedIn' : d.channel === 'phone' ? 'telefonic' : 'pe email'}${str(d.target) ? ` lui ${d.target}` : ''}`,
+    category: 'leaduri',
+  }),
+  contact_do_not_contact: (d) => ({ label: `A marcat „Nu contacta”${str(d.target) ? `: ${d.target}` : ''}`, category: 'leaduri' }),
+  contact_allowed: (d) => ({ label: `A scos marcajul „Nu contacta”${str(d.target) ? `: ${d.target}` : ''}`, category: 'leaduri' }),
 }
 
 /** Backend audit actions ("PUT /companies/{company_id}/assignment", "login", …) as words a manager reads. */
@@ -50,6 +56,9 @@ const RULES: [RegExp, string, ActivityCategory][] = [
   [/^logout$/, 'A ieșit din cont', 'acces'],
   [/\/companies\/\{company_id\}\/assignment$/, 'A actualizat stadiul sau responsabilul unui lead', 'leaduri'],
   [/\/companies\/\{company_id\}\/notes$/, 'A adăugat o notă', 'leaduri'],
+  [/\/companies\/\{company_id\}\/contacts\/discover$/, 'A căutat persoane de contact', 'leaduri'],
+  [/^POST \/companies\/\{company_id\}\/contacts$/, 'A adăugat o persoană de contact', 'leaduri'],
+  [/^DELETE \/contacts\//, 'A șters o persoană de contact', 'leaduri'],
   [/\/companies\/\{company_id\}\/outreach/, 'A generat un mesaj de contact', 'leaduri'],
   [/\/companies\/\{company_id\}\/linkedin$/, 'A validat compania pe LinkedIn', 'leaduri'],
   [/\/companies\/\{company_id\}\/manual-signal$/, 'A adăugat un semnal manual', 'leaduri'],

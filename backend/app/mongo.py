@@ -10,6 +10,7 @@ Collections (integer ids from `counters`, so API URLs and the frontend keep nume
     pipeline_runs    enrichment / discovery / bootstrap runs with progress, stats and log
     llm_cache        LLM responses keyed by (task, model, company, question, passages)
     activity_log     who did what: seller actions (seller_id -> PostgreSQL sellers.id) and system events
+    contacts         decision makers and published contact details, each with its sources (app/contacts.py)
 
 Every collection has a $jsonSchema validator (SCHEMAS) so the documents keep a fixed structure.
 
@@ -34,6 +35,7 @@ LEAD_SCORES = "lead_scores"
 RUNS = "pipeline_runs"
 LLM_CACHE = "llm_cache"
 ACTIVITY = "activity_log"
+CONTACTS = "contacts"
 COUNTERS = "counters"
 
 _client: MongoClient | None = None
@@ -154,6 +156,16 @@ SCHEMAS: dict[str, dict] = {
         },
     },
     LLM_CACHE: {"required": ["value", "created_at"], "properties": {"created_at": {"bsonType": "date"}}},
+    CONTACTS: {
+        "required": ["company_id", "level", "sources", "do_not_contact", "created_at"],
+        "properties": {
+            "company_id": {"bsonType": INT}, "name": {"bsonType": OPT_STR}, "role": {"bsonType": OPT_STR},
+            "level": {"enum": ["c_level", "director", "manager", "other", "unknown"]},
+            "email": {"bsonType": OPT_STR}, "phone": {"bsonType": OPT_STR}, "linkedin": {"bsonType": OPT_STR},
+            "verified": {"bsonType": "bool"}, "sources": {"bsonType": "array", "minItems": 1},
+            "do_not_contact": {"bsonType": "bool"}, "added_by": {"bsonType": OPT_STR}, "created_at": {"bsonType": "date"},
+        },
+    },
     ACTIVITY: {
         "required": ["t", "action"],
         "properties": {
@@ -189,6 +201,7 @@ def ensure_indexes(d: Database) -> None:
     d[LEAD_SCORES].create_index([("final_score", DESCENDING)])
     d[RUNS].create_index("status")
     d[ACTIVITY].create_index([("company_id", ASCENDING), ("t", DESCENDING)])
+    d[CONTACTS].create_index("company_id")
     d[ACTIVITY].create_index([("seller_id", ASCENDING), ("t", DESCENDING)])
 
 
@@ -274,7 +287,7 @@ def domain_taken(domain: str, exclude_id: int | None = None) -> bool:
 
 def delete_company(company_id: int) -> None:
     d = db()
-    for coll in (DOCUMENTS, SIGNALS, EVENTS, LEAD_SCORES, ACTIVITY):
+    for coll in (DOCUMENTS, SIGNALS, EVENTS, LEAD_SCORES, ACTIVITY, CONTACTS):
         d[coll].delete_many({"company_id": company_id})
     d[COMPANIES].delete_one({"_id": company_id})
 

@@ -26,5 +26,9 @@ services:
         value: "true"
       - key: ANTHROPIC_API_KEY     # optional: Claude instead of the offline keyword analysis
         sync: false
+      - key: HUNTER_API_KEY        # optional: decision-maker e-mails found published on the web (hunter.io)
+        sync: false
+      - key: APOLLO_API_KEY        # optional: decision makers with title / LinkedIn (apollo.io)
+        sync: false
       - key: SCHEDULER_ENABLED
         value: "false"

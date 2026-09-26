@@ -235,6 +235,30 @@ export const generateOutreach = (
     120_000,
   )
 
+// ------------------------------------------------------------------ decision-maker contacts (backend/app/contacts.py)
+export interface ContactSource { source: 'website' | 'news' | 'hunter' | 'apollo' | 'manual'; url: string; evidence: string; found_at: string | null }
+export interface Contact {
+  id: number; company_id: number
+  name: string | null; role: string | null; level: 'c_level' | 'director' | 'manager' | 'other' | 'unknown'
+  email: string | null; phone: string | null; linkedin: string | null; verified: boolean
+  sources: ContactSource[]; do_not_contact: boolean; added_by: string | null
+}
+export interface DiscoverStats {
+  new: number
+  keys: { hunter: boolean; apollo: boolean }
+  [source: string]: { found?: number; error?: string } | number | { hunter: boolean; apollo: boolean }
+}
+export const listContacts = (companyId: string) => getJson<Contact[]>(`/companies/${companyId}/contacts`)
+/** Looks in the company's site, its news and, with keys, Hunter.io / Apollo.io; only published data is kept. */
+export const discoverContacts = (companyId: string) =>
+  postJson<{ stats: DiscoverStats; contacts: Contact[] }>(`/companies/${companyId}/contacts/discover`, {}, 90_000)
+export const addContact = (
+  companyId: string, body: { name: string; role?: string; email?: string; phone?: string; linkedin?: string; note?: string },
+) => postJson<Contact>(`/companies/${companyId}/contacts`, body)
+export const setDoNotContact = (id: number, value: boolean) => putJson<Contact>(`/contacts/${id}`, { do_not_contact: value })
+export const deleteContact = (id: number) => del(`/contacts/${id}`)
+export const markMessageSent = (id: number, channel: 'email' | 'linkedin' | 'phone') => postJson<void>(`/contacts/${id}/sent`, { channel })
+
 // ------------------------------------------------------------------ deal estimate (backend/app/deal_value.py)
 /** What a lead could bring Orange Systems in the first year: value range, delivery cost, gross profit, win chance. */
 export interface Deal {
